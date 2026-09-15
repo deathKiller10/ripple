@@ -1,0 +1,15 @@
+# Pinned for reproducibility (gate G1). No GPU, no model download at run time.
+fastapi==0.141.1
+uvicorn[standard]==0.34.0
+websockets==14.1
+pydantic==2.10.6
+numpy==2.2.1
+scipy==1.15.1
+scikit-learn==1.6.1
+faiss-cpu==1.15.0
+rank-bm25==0.2.2
+httpx==0.28.1
+
+# OPTIONAL quality path. Not installed by default because torch is ~800MB and
+# the keyless container must stay small and fast to build. Enable with
+# RIPPLE_EMBEDDER=bge-small after: pip install -r requirements-quality.txt

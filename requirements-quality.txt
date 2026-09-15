@@ -1,0 +1,5 @@
+# The higher-quality retrieval path. Adds ~800MB (torch). The Dockerfile
+# target `quality` bakes these models into the image so run time still needs
+# no network.
+sentence-transformers==3.3.1
+torch==2.5.1

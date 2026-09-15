@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ripple — Streaming Live RAG</title>
+<style>
+  :root{
+    --bg:#0c1316; --panel:#121b1f; --panel2:#1a252a; --line:#25343a;
+    --ink:#e9eff1; --ink2:#b0c1c7; --ink3:#7f9299;
+    --accent:#52c4d6; --good:#67c998; --warn:#e3ab5e; --crit:#f2849b;
+    --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  header{display:flex;align-items:center;gap:16px;padding:10px 16px;
+         border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
+  header h1{font-size:15px;margin:0;letter-spacing:.02em}
+  header h1 span{color:var(--accent)}
+  .meta{font-family:var(--mono);font-size:11px;color:var(--ink3)}
+  select,button{background:var(--panel2);color:var(--ink);border:1px solid var(--line);
+                border-radius:4px;padding:6px 10px;font-size:13px;cursor:pointer}
+  button:hover{border-color:var(--accent)}
+  button:disabled{opacity:.4;cursor:default}
+  main{display:grid;grid-template-columns:1fr 1.25fr 1fr;gap:1px;background:var(--line);
+       min-height:calc(100vh - 47px)}
+  .col{background:var(--bg);padding:12px;overflow-y:auto;max-height:calc(100vh - 47px)}
+  h2{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);
+     margin:0 0 10px;font-weight:600}
+  h3{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);
+     margin:18px 0 8px;font-weight:600}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:5px;
+        padding:10px 12px;margin-bottom:8px}
+  .mono{font-family:var(--mono)}
+  /* transcript */
+  .frag{display:inline;color:var(--ink2)}
+  .frag.new{color:var(--accent)}
+  .utt{padding:8px 10px;border-left:2px solid var(--line);margin-bottom:10px}
+  .utt.customer{border-left-color:var(--accent)}
+  .utt.agent{border-left-color:var(--warn)}
+  .who{font-family:var(--mono);font-size:10px;color:var(--ink3);text-transform:uppercase;
+       letter-spacing:.1em;margin-bottom:3px}
+  /* timeline */
+  .ev{display:grid;grid-template-columns:52px 1fr;gap:8px;padding:5px 0;
+      border-bottom:1px solid var(--line);font-size:12.5px}
+  .ev .t{font-family:var(--mono);font-size:11px;color:var(--ink3);text-align:right}
+  .ev .body{min-width:0}
+  .tag{display:inline-block;font-family:var(--mono);font-size:10px;padding:1px 5px;
+       border-radius:3px;margin-right:6px;letter-spacing:.04em}
+  .t-wait{background:#1f2c31;color:var(--ink3)}
+  .t-retrieve{background:#11343d;color:var(--accent)}
+  .t-more{background:#2a2140;color:#b39ddb}
+  .t-suppress{background:#382b14;color:var(--warn)}
+  .t-claim{background:#153226;color:var(--good)}
+  .t-super{background:#3a1922;color:var(--crit)}
+  .t-unc{background:#3a2a14;color:var(--warn)}
+  .cite{font-family:var(--mono);font-size:10.5px;color:var(--accent);
+        background:#11282e;border-radius:3px;padding:1px 4px;margin:1px 3px 1px 0;
+        display:inline-block;cursor:pointer;border:1px solid transparent}
+  .cite:hover{border-color:var(--accent)}
+  .dim{color:var(--ink3)}
+  /* chart */
+  #chart{width:100%;height:140px;display:block}
+  .kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-bottom:10px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:8px 10px}
+  .kpi .v{font-family:var(--mono);font-size:19px;font-weight:600;line-height:1.1}
+  .kpi .k{font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink3);
+          margin-top:3px}
+  .kpi.neg .v{color:var(--good)}
+  /* claims */
+  .claim{border-left:2px solid var(--good);padding:7px 10px;margin-bottom:7px;
+         background:var(--panel)}
+  .claim.superseded{border-left-color:var(--crit);opacity:.5;text-decoration:line-through}
+  .claim.added{border-left-color:var(--accent)}
+  .diff{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+  .pill{font-family:var(--mono);font-size:10.5px;padding:3px 7px;border-radius:3px}
+  .p-keep{background:#153226;color:var(--good)}
+  .p-sup{background:#3a1922;color:var(--crit)}
+  .p-add{background:#11343d;color:var(--accent)}
+  .p-drift{background:#382b14;color:var(--warn)}
+  .unc{background:#2a2114;border:1px solid var(--warn);border-radius:5px;padding:9px 11px;
+       color:var(--warn);font-size:12.5px;margin-bottom:10px}
+  .alloc{font-family:var(--mono);font-size:11px;color:var(--ink2)}
+  @media(max-width:1000px){main{grid-template-columns:1fr}.col{max-height:none}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Ripple<span> · Streaming Live RAG</span></h1>
+  <select id="scenario"></select>
+  <select id="speed">
+    <option value="1">1× realtime</option>
+    <option value="2">2×</option>
+    <option value="4">4×</option>
+    <option value="99">instant</option>
+  </select>
+  <button id="run">Replay</button>
+  <button id="reset">Reset</button>
+  <span class="meta" id="health">connecting…</span>
+</header>
+
+<main>
+  <section class="col">
+    <h2>Live transcript</h2>
+    <div id="transcript"></div>
+  </section>
+
+  <section class="col">
+    <h2>Controller &amp; retrieval timeline</h2>
+    <svg id="chart" viewBox="0 0 600 140" preserveAspectRatio="none"></svg>
+    <div class="alloc" id="alloc"></div>
+    <div id="timeline"></div>
+  </section>
+
+  <section class="col">
+    <h2>Answer</h2>
+    <div class="kpis">
+      <div class="kpi" id="k-ttft"><div class="v">—</div><div class="k">TTFT vs utt. end</div></div>
+      <div class="kpi" id="k-ver"><div class="v">—</div><div class="k">answer version</div></div>
+      <div class="kpi" id="k-retr"><div class="v">0</div><div class="k">retrievals</div></div>
+      <div class="kpi" id="k-llm"><div class="v">0</div><div class="k">LLM calls</div></div>
+    </div>
+    <div class="diff" id="diff"></div>
+    <div id="uncertainty"></div>
+    <div id="claims"></div>
+    <h3>Evidence pool</h3>
+    <div id="pool" class="mono" style="font-size:11px"></div>
+    <div class="card" id="chunkview" style="display:none"></div>
+  </section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+let ws, stability = [], events = [], theta = 0.40, t0 = 0;
+
+function connect(){
+  ws = new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');
+  ws.onmessage = e => handle(JSON.parse(e.data));
+  ws.onclose = () => setTimeout(connect, 1200);
+}
+
+fetch('/api/health').then(r=>r.json()).then(h=>{
+  theta = h.theta;
+  $('#health').textContent =
+    `provider=${h.provider} · embedder=${h.embedder} · reranker=${h.reranker} · `+
+    `${h.index.documents} docs / ${h.index.chunks} chunks · θ=${h.theta} ν=${h.nu}`;
+});
+
+fetch('/api/scenarios').then(r=>r.json()).then(list=>{
+  const sel = $('#scenario');
+  list.forEach(s=>{
+    const o=document.createElement('option');
+    o.value=s.scenario_id; o.textContent=`${s.scenario_id} — ${s.text.slice(0,54)}…`;
+    sel.appendChild(o);
+  });
+});
+
+$('#run').onclick = () => {
+  clearAll();
+  ws.send(JSON.stringify({type:'replay', scenario_id:$('#scenario').value,
+                          speed:parseFloat($('#speed').value)}));
+};
+$('#reset').onclick = () => { clearAll(); ws.send(JSON.stringify({type:'reset'})); };
+
+function clearAll(){
+  stability=[]; events=[];
+  ['#transcript','#timeline','#claims','#pool','#diff','#uncertainty','#alloc']
+    .forEach(s=>$(s).innerHTML='');
+  $('#chunkview').style.display='none';
+  setKpi('#k-ttft','—',false); setKpi('#k-ver','—'); setKpi('#k-retr','0'); setKpi('#k-llm','0');
+  drawChart();
+}
+function setKpi(sel,v,neg){ const e=$(sel); e.querySelector('.v').textContent=v;
+  if(neg!==undefined) e.classList.toggle('neg', !!neg); }
+
+let curUtt = null, retrCount = 0;
+
+function handle(m){
+  if(m.type==='transcript'){
+    if(!curUtt || curUtt.dataset.speaker!==m.speaker || curUtt.dataset.done==='1'){
+      curUtt=document.createElement('div');
+      curUtt.className='utt '+m.speaker; curUtt.dataset.speaker=m.speaker;
+      curUtt.innerHTML=`<div class="who">${m.speaker} · ${m.t.toFixed(2)}s</div><div class="txt"></div>`;
+      $('#transcript').appendChild(curUtt);
+    }
+    const sp=document.createElement('span'); sp.className='frag new'; sp.textContent=m.text+' ';
+    curUtt.querySelector('.txt').appendChild(sp);
+    setTimeout(()=>sp.classList.remove('new'), 700);
+    if(m.is_final) curUtt.dataset.done='1';
+    $('#transcript').scrollTop=1e9;
+    return;
+  }
+  if(m.type==='turn'){
+    setKpi('#k-ver','v'+m.version);
+    setKpi('#k-retr', String(m.retrievals_this_turn));
+    setKpi('#k-llm', String(m.cost.llm_calls));
+    if(m.ttft_rel_utterance_end!==null && m.ttft_rel_utterance_end!==undefined){
+      const v=m.ttft_rel_utterance_end;
+      setKpi('#k-ttft', (v>=0?'+':'')+v.toFixed(2)+'s', v<0);
+    }
+    const cs=m.change_summary||{}; const d=$('#diff'); d.innerHTML='';
+    if(cs.preserved!==undefined){
+      d.innerHTML =
+        `<span class="pill p-keep">${cs.preserved} preserved</span>`+
+        `<span class="pill p-sup">${cs.superseded||0} superseded</span>`+
+        `<span class="pill p-add">${cs.added||0} added</span>`+
+        `<span class="pill p-drift">${cs.citations_changed_on_preserved||0} citation drift</span>`;
+    }
+    if(m.kind==='suppressed'){
+      d.innerHTML += `<span class="pill p-keep">retrieval_required: false</span>`;
+    }
+    $('#uncertainty').innerHTML = m.uncertainty
+      ? `<div class="unc"><b>Uncertainty</b><br>${esc(m.uncertainty)}</div>` : '';
+    return;
+  }
+  if(m.type==='state'){
+    renderClaims(m.claims); renderPool(m.pool, m.pool_counts);
+    return;
+  }
+  if(m.type==='reset_ok'||m.type==='replay_done') return;
+  if(m.t_rel_s!==undefined) renderEvent(m);
+}
+
+function esc(s){ return String(s).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c])); }
+
+function renderEvent(m){
+  const T = m.t_rel_s;
+  if(m.type==='controller_decision' && m.controller){
+    const c=m.controller;
+    if(c.stability!==undefined && c.reason!=='utterance_final_check'){
+      stability.push({t:T, s:c.stability, d:c.decision});
+      drawChart();
+    }
+    if(c.decision==='WAIT') return;              // keep the log readable
+    addEv(T, tagFor(c.decision), `${c.reason}`,
+          `s=${c.stability?.toFixed?.(2)} ν=${c.novelty?.toFixed?.(2)}`);
+    return;
+  }
+  if(m.type==='retrieval_started'){
+    retrCount++;
+    addEv(T,`<span class="tag t-retrieve">${m.trigger||'retrieve'}</span>`,
+          esc(m.sub_query||''),'');
+  }
+  else if(m.type==='retrieval_completed'){
+    addEv(T,'<span class="tag t-retrieve">hits</span>',
+          (m.retrieved||[]).slice(0,6).map(citeHtml).join(''),'');
+  }
+  else if(m.type==='decomposed'){
+    addEv(T,'<span class="tag t-more">decompose</span>',
+          (m.sub_queries||[]).map(q=>`<div>• ${esc(q)}</div>`).join(''),
+          m.detail?.method||'');
+  }
+  else if(m.type==='fusion_completed'){
+    const a=m.allocation||{};
+    $('#alloc').innerHTML = 'budget allocation — '+
+      Object.entries(a).map(([k,v])=>`<b>${v}</b> chunks`).join(' · ')+
+      (m.detail?.starved_intents?.length?` · <span style="color:var(--crit)">starved: ${m.detail.starved_intents.length}</span>`:' · no starvation');
+    addEv(T,'<span class="tag t-retrieve">fusion</span>',
+          (m.retrieved||[]).slice(0,8).map(citeHtml).join(''),'');
+  }
+  else if(m.type==='constraint_detected'){
+    addEv(T,'<span class="tag t-super">constraint</span>',
+          `<b>${esc(m.detail.scope)} = ${esc(m.detail.value)}</b><br>`+
+          `<span class="dim">invalidates ${esc(JSON.stringify(m.detail.invalidates))}</span>`,'');
+  }
+  else if(m.type==='claim_preserved'){
+    addEv(T,'<span class="tag t-claim">preserved</span>',
+          (m.citations||[]).map(citeHtml).join(''),'');
+  }
+  else if(m.type==='claim_superseded'){
+    addEv(T,'<span class="tag t-super">superseded</span>','','');
+  }
+  else if(m.type==='first_token'){
+    addEv(T,'<span class="tag t-claim">first token</span>',
+          m.detail?.speculative?'<b>speculative — customer still speaking</b>':'', '');
+  }
+  else if(m.type==='uncertainty_emitted'){
+    addEv(T,'<span class="tag t-unc">uncertainty</span>', esc(m.uncertainty||''),'');
+  }
+  else if(m.type==='answer_version'){
+    addEv(T,'<span class="tag t-claim">answer v'+m.answer_version+'</span>',
+          (m.citations||[]).map(citeHtml).join(''),'');
+  }
+}
+
+function tagFor(d){
+  const map={RETRIEVE:'t-retrieve',RETRIEVE_MORE:'t-more',SUPPRESS:'t-suppress',
+             WAIT:'t-wait',RESOLVE:'t-wait'};
+  return `<span class="tag ${map[d]||'t-wait'}">${d}</span>`;
+}
+
+function addEv(t, tag, body, extra){
+  const el=document.createElement('div'); el.className='ev';
+  el.innerHTML=`<div class="t">${t.toFixed(2)}s</div>`+
+               `<div class="body">${tag}${body}`+
+               (extra?` <span class="dim mono">${extra}</span>`:'')+`</div>`;
+  $('#timeline').appendChild(el);
+  $('#timeline').parentElement.scrollTop=1e9;
+}
+
+function citeHtml(c){ return `<span class="cite" onclick="showChunk('${c}')">${c}</span>`; }
+
+window.showChunk = function(cite){
+  fetch('/api/corpus?cite='+encodeURIComponent(cite)).then(r=>r.json()).then(c=>{
+    const v=$('#chunkview'); v.style.display='block';
+    v.innerHTML=`<div class="mono" style="color:var(--accent);font-size:11px">${c.cite}</div>`+
+      `<div style="font-weight:600;margin:3px 0">${esc(c.doc_title)} — §${c.section} ${esc(c.section_title)}</div>`+
+      `<div style="color:var(--ink2);font-size:12.5px">${esc(c.text)}</div>`;
+  });
+};
+
+function renderClaims(claims){
+  $('#claims').innerHTML = claims.map(c=>
+    `<div class="claim"><div>${esc(c.text)}</div>`+
+    `<div style="margin-top:4px">${(c.citations||[]).map(citeHtml).join('')}</div>`+
+    (c.assumptions?.length?`<div class="dim mono" style="font-size:10px;margin-top:3px">scope: ${c.assumptions.join(', ')}</div>`:'')+
+    `</div>`).join('') || '<div class="dim">no claims yet</div>';
+}
+
+function renderPool(pool, counts){
+  $('#pool').innerHTML =
+    Object.entries(counts||{}).map(([k,v])=>`${k}=${v}`).join('  ') +
+    '<br>' + (pool||[]).slice(0,14).map(p=>
+      `<div style="color:${p.state==='ACTIVE'?'var(--good)':p.state==='SUPERSEDED'?'var(--crit)':'var(--ink3)'}">`+
+      `${p.cite} <span class="dim">${p.state}</span></div>`).join('');
+}
+
+function drawChart(){
+  const svg=$('#chart'); const W=600,H=140,PAD=6;
+  const maxT=Math.max(4, ...stability.map(p=>p.t));
+  const x=t=>PAD+(t/maxT)*(W-2*PAD);
+  const y=s=>H-14-s*(H-30);
+  let d=''; stability.forEach((p,i)=>{ d+=(i?'L':'M')+x(p.t).toFixed(1)+' '+y(p.s).toFixed(1)+' '; });
+  const marks=stability.filter(p=>p.d!=='WAIT').map(p=>
+    `<circle cx="${x(p.t).toFixed(1)}" cy="${y(p.s).toFixed(1)}" r="3.5" fill="${
+      p.d==='SUPPRESS'?'#e3ab5e':p.d==='RETRIEVE_MORE'?'#b39ddb':'#52c4d6'}"/>`).join('');
+  svg.innerHTML =
+    `<line x1="${PAD}" y1="${y(theta)}" x2="${W-PAD}" y2="${y(theta)}" stroke="#e3ab5e" stroke-width="1" stroke-dasharray="4 3"/>`+
+    `<text x="${PAD+3}" y="${y(theta)-4}" fill="#e3ab5e" font-size="9" font-family="monospace">θ=${theta}</text>`+
+    `<path d="${d}" fill="none" stroke="#52c4d6" stroke-width="2"/>`+ marks +
+    `<text x="${PAD}" y="${H-3}" fill="#7f9299" font-size="9" font-family="monospace">0s</text>`+
+    `<text x="${W-PAD-24}" y="${H-3}" fill="#7f9299" font-size="9" font-family="monospace">${maxT.toFixed(1)}s</text>`;
+}
+
+drawChart();
+connect();
+</script>
+</body>
+</html>

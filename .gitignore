@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.index/
+traces/
+results/
+.env
+frontend/node_modules/
+frontend/dist/
+.venv/

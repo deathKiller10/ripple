@@ -1,0 +1,20 @@
+# The single command gate G1 asks for:
+#     docker compose up
+# Serves the dashboard on http://localhost:8000 with no API key and no GPU.
+services:
+  ripple:
+    build:
+      context: .
+      target: base
+    ports:
+      - "8000:8000"
+    environment:
+      # Override to gemini/openai and supply a key for the LLM path.
+      RIPPLE_PROVIDER: ${RIPPLE_PROVIDER:-stub}
+      RIPPLE_EMBEDDER: ${RIPPLE_EMBEDDER:-tfidf-svd}
+      RIPPLE_THETA: ${RIPPLE_THETA:-0.40}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    volumes:
+      - ./traces:/app/traces
+      - ./results:/app/results
