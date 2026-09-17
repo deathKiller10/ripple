@@ -12,10 +12,12 @@ nine, and the form asks for the prompts, which nobody remembers a week later.
 
 ## Team details (fill in before submission)
 
-- Team name: `________`
+- Team name: `________` (register as `CollegeName_TeamName`)
 - Project name: **Ripple**
 - Institution: VIT Vellore
 - Submission date: 25 Sep 2026
+- Members: Priyanshu Kundu · Souptik Hazra · Anushka Paul · Arpita Bhaumik
+- Repository: https://github.com/deathKiller10/ripple
 - Did your team use AI in developing this project? **Yes**
 
 ## Purpose of AI usage

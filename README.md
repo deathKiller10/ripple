@@ -2,6 +2,10 @@
 
 **Samsung PRISM GenAI Hackathon, 3rd Edition · Theme 04**
 
+**Team** · Priyanshu Kundu · Souptik Hazra · Anushka Paul · Arpita Bhaumik
+**Repo** · https://github.com/deathKiller10/ripple
+**Submission tag** · `PRISM_GENAI_HACKATHON_Y2026` · due 25 Sep 2026
+
 Retrieval that starts before the sentence lands, and an answer that updates
 itself instead of starting over.
 
@@ -323,6 +327,13 @@ look bad in a way you cannot explain mechanically is a harness bug until proven
 otherwise.
 
 ---
+
+## Working on this
+
+`CLAUDE.md` holds the project rules — the hard constraints from Samsung, the
+invariants that must not break, who owns which folders, and the evaluation
+discipline. Claude Code loads it automatically in this repo.
+`docs/claude-code-kickoff.md` has a first-session prompt for each member.
 
 ## Layout
 
