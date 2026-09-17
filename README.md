@@ -330,10 +330,10 @@ otherwise.
 
 ## Working on this
 
-`CLAUDE.md` holds the project rules — the hard constraints from Samsung, the
+`AGENTS.md` holds the project rules — the hard constraints from Samsung, the
 invariants that must not break, who owns which folders, and the evaluation
-discipline. Claude Code loads it automatically in this repo.
-`docs/claude-code-kickoff.md` has a first-session prompt for each member.
+discipline. Claude Code, Antigravity and most agentic editors load it automatically.
+`docs/kickoff-prompts.md` has a first-session prompt for each member.
 
 ## Layout
 

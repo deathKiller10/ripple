@@ -1,7 +1,15 @@
-# Claude Code kickoff prompts
+# Kickoff prompts for your AI coding tool
 
-One prompt per person for the first session. After this, `CLAUDE.md` is loaded
-automatically every time, so you never need to re-explain the project.
+One prompt per person for the first session.
+
+**Claude Code** reads `CLAUDE.md` → `AGENTS.md` automatically, so after the
+first session you never re-explain the project.
+
+**Antigravity, Cursor and most other agentic editors** read `AGENTS.md`
+automatically too. If yours does not, or you are not sure, just start every
+session with *"Read AGENTS.md first"* — that line is already at the top of each
+prompt below. It costs nothing and it is the difference between an agent that
+respects the project's constraints and one that quietly breaks them.
 
 **Before your first prompt**, in your clone:
 
@@ -23,7 +31,7 @@ Everything below assumes a green baseline.
 
 ## Priyanshu — B, the engine
 
-> Read CLAUDE.md first. I own the controller, session state and synthesis:
+> Read AGENTS.md first. I own the controller, session state and synthesis:
 > `ripple/controller/`, `ripple/session/`, `ripple/synthesis/`, `ripple/engine.py`.
 > Do not edit files outside those without telling me.
 >
@@ -47,7 +55,7 @@ Everything below assumes a green baseline.
 
 ## Souptik — A, retrieval and the corpus
 
-> Read CLAUDE.md first. I own `ripple/retrieval/`, `ripple/corpus/` and
+> Read AGENTS.md first. I own `ripple/retrieval/`, `ripple/corpus/` and
 > `data/corpus/`. Do not edit files outside those without telling me.
 >
 > Two jobs, in order.
@@ -75,7 +83,7 @@ Everything below assumes a green baseline.
 
 ## Anushka — C, the dashboard
 
-> Read CLAUDE.md first, then `frontend/README.md`. I own `frontend/` and nothing
+> Read AGENTS.md first, then `frontend/README.md`. I own `frontend/` and nothing
 > else.
 >
 > `frontend/dashboard.html` works today and is what the Docker container serves.
@@ -108,7 +116,7 @@ Everything below assumes a green baseline.
 
 ## Arpita — D, evaluation and reproducibility
 
-> Read CLAUDE.md first. I own `evaluation/`, `data/scenarios/`, `tests/`,
+> Read AGENTS.md first. I own `evaluation/`, `data/scenarios/`, `tests/`,
 > `Dockerfile` and `docker-compose.yml`. Do not edit files outside those without
 > telling me.
 >
@@ -135,6 +143,14 @@ Everything below assumes a green baseline.
 > measured yet".
 
 ---
+
+## If you are on a free tier
+
+Ask for one component at a time, read every diff before accepting it, and run
+the tests yourself instead of spending a request on them. See the
+"Working with a free-tier agent" section of `AGENTS.md`. Nothing in this repo
+needs an AI to maintain it — it is ordinary Python, and the agent is an
+accelerator, not a dependency.
 
 ## Daily rhythm
 
