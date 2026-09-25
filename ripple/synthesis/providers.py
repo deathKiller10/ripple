@@ -176,6 +176,39 @@ class GeminiProvider(Provider):
     def available(self) -> bool:
         return bool(self.api_key)
 
+    LIST_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models"
+
+    def list_models(self) -> tuple[bool, list[str] | str]:
+        """Ask the API which models this key can use.
+
+        This separates two failures that look identical from a generation
+        call: a key the API rejects, and a good key with a model name it does
+        not recognise. Knowing which one you have decides what to fix.
+        """
+        import httpx
+
+        if not self.available():
+            return False, "no API key set (GEMINI_API_KEY)"
+        try:
+            r = httpx.get(self.LIST_ENDPOINT, params={"key": self.api_key},
+                          headers={"x-goog-api-key": self.api_key},
+                          timeout=20.0)
+            if r.status_code != 200:
+                detail = ""
+                try:
+                    detail = r.json().get("error", {}).get("message", "")[:220]
+                except Exception:
+                    detail = r.text[:220]
+                return False, f"HTTP {r.status_code}: {detail}"
+            names = []
+            for m in r.json().get("models", []):
+                methods = m.get("supportedGenerationMethods", [])
+                if not methods or "generateContent" in methods:
+                    names.append(m.get("name", "").replace("models/", ""))
+            return True, names
+        except Exception as e:  # noqa: BLE001
+            return False, f"{type(e).__name__}: {e}"
+
     def preflight(self) -> tuple[bool, str]:
         """One cheap call to prove the key and model work.
 
@@ -214,8 +247,15 @@ class GeminiProvider(Provider):
         for attempt in range(4):
             self.bucket.acquire()
             try:
-                r = httpx.post(url, params={"key": self.api_key}, json=body,
-                               timeout=30.0)
+                # Key sent BOTH ways on purpose. Google has documented the
+                # `?key=` query parameter for years and the `x-goog-api-key`
+                # header more recently; which one a given key works with has
+                # changed over time and is not something we should guess at
+                # from the key's prefix. Sending both is harmless and removes
+                # a whole class of "the key is fine but the call is rejected".
+                r = httpx.post(url, params={"key": self.api_key},
+                               headers={"x-goog-api-key": self.api_key},
+                               json=body, timeout=30.0)
                 if r.status_code == 429:
                     time.sleep(2 ** attempt * 2.0)
                     last_err = "rate_limited"

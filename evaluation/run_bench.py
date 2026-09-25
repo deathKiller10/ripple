@@ -152,11 +152,12 @@ def main(argv=None):
             print(f"  The {wanted} provider rejected a test call:")
             print(f"     {detail}")
             print()
-            print("  Nothing was run. Fix the key or model and try again.")
-            print("  A Google AI Studio key looks like 'AIza...' \u2014 if yours")
-            print("  starts with something else you may have created an OAuth")
-            print("  credential rather than an API key. Make one at")
-            print("     https://aistudio.google.com/app/apikey")
+            print("  Nothing was run. Fix it and try again.")
+            print()
+            print("  Run this for a proper diagnosis \u2014 it separates a")
+            print("  rejected key from a wrong model name, which fail")
+            print("  identically here but need opposite fixes:")
+            print("     python scripts/check_key.py")
             print("!" * 74)
             return 2
 

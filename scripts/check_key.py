@@ -1,11 +1,20 @@
 #!/usr/bin/env python3
-"""Two-second check that your LLM key works.
+"""Diagnose your LLM key in about five seconds.
 
     python scripts/check_key.py
 
-Makes exactly one tiny API call and tells you plainly whether it worked.
-Run this before any benchmark: a rejected key inside a long run wastes the
-run, and until this existed it looked like a hang rather than an error.
+Runs two checks, in this order, because they fail for different reasons and
+the fix is different:
+
+  1. CAN THE KEY TALK TO THE API AT ALL?  (lists available models)
+  2. DOES THE MODEL WE ASK FOR EXIST FOR THIS KEY?  (one tiny generation)
+
+Splitting them matters. A rejected key and a wrong model name produce the
+same unhelpful error from a generation call, and they need opposite fixes.
+
+Deliberately makes no judgement about what a key "should look like". Key
+formats change, and a prefix heuristic that is out of date sends you looking
+in the wrong place -- which is exactly what happened here once already.
 """
 
 from __future__ import annotations
@@ -19,61 +28,118 @@ from ripple.config import Config                       # noqa: E402
 from ripple.synthesis.providers import build_provider   # noqa: E402
 
 
+def line(char="-"):
+    print(char * 70)
+
+
 def main() -> int:
     cfg = Config()
     wanted = (cfg.synthesis.provider or "stub").lower()
-    print(f"provider requested : {wanted}")
-    print(f"model              : {cfg.synthesis.model}")
 
-    key_var = {"gemini": "GEMINI_API_KEY", "openai": "OPENAI_API_KEY"}.get(wanted)
-    if key_var:
-        key = os.environ.get(key_var, "")
-        if key:
-            print(f"{key_var:<19}: set, {len(key)} characters, "
-                  f"ends ...{key[-4:]}")
-            if wanted == "gemini" and not key.startswith("AIza"):
-                print()
-                print("  NOTE: Google AI Studio API keys normally begin 'AIza'.")
-                print("  A key starting with something else is usually an OAuth")
-                print("  credential, which this API will reject. Create a real")
-                print("  API key at https://aistudio.google.com/app/apikey")
-        else:
-            print(f"{key_var:<19}: NOT SET")
-            print()
-            print("  Create a file called .env in the repo root containing:")
-            print(f"     RIPPLE_PROVIDER={wanted}")
-            print(f"     {key_var}=your_key_here")
-            print("     RIPPLE_RPM=12")
-            return 1
+    line("=")
+    print("Ripple key check")
+    line("=")
+    print(f"  provider requested : {wanted}")
+    print(f"  model requested    : {cfg.synthesis.model}")
+
+    key_var = {"gemini": "GEMINI_API_KEY",
+               "openai": "OPENAI_API_KEY"}.get(wanted)
+    if not key_var:
+        print("\n  Provider is 'stub' (keyless). Nothing to check.")
+        print("  Set RIPPLE_PROVIDER=gemini in .env to use a real model.")
+        return 0
+
+    key = os.environ.get(key_var, "")
+    if not key:
+        print(f"  {key_var:<18} : NOT SET")
+        print()
+        print("  Create a file called  .env  in the repo root containing:")
+        print(f"     RIPPLE_PROVIDER={wanted}")
+        print(f"     {key_var}=your_key_here")
+        print("     RIPPLE_RPM=12")
+        return 1
+    print(f"  {key_var:<18} : set, {len(key)} chars, ends ...{key[-4:]}")
 
     provider = build_provider(cfg.synthesis, cfg.cost)
     if provider.name == "stub":
-        print()
-        print("RESULT: falling back to the keyless stub — no usable key.")
+        print("\n  RESULT: fell back to the keyless stub. No usable key.")
         return 1
 
+    # --- check 1: authentication ------------------------------------------
     print()
-    print("making one test call ...")
+    line()
+    print("CHECK 1  Can this key reach the API?")
+    line()
+    if not hasattr(provider, "list_models"):
+        print("  (not supported for this provider; skipping to check 2)")
+        models = None
+    else:
+        ok, result = provider.list_models()
+        if not ok:
+            print(f"  FAILED: {result}")
+            print()
+            print("  The key itself is being rejected. Things to check:")
+            print("    1. Is the Generative Language API enabled on the")
+            print("       project this key belongs to? A brand-new project")
+            print("       usually has it switched off. Enable it here:")
+            print("       https://console.cloud.google.com/apis/library/"
+                  "generativelanguage.googleapis.com")
+            print("    2. Does the key have an application restriction (IP,")
+            print("       referrer) or an API restriction that excludes the")
+            print("       Generative Language API?")
+            print("    3. Was the key created in Google AI Studio")
+            print("       (https://aistudio.google.com/app/apikey) rather")
+            print("       than as a generic Cloud credential?")
+            print("    4. Is a proxy, VPN or firewall blocking the request?")
+            return 1
+        models = result
+        print(f"  OK. This key can use {len(models)} model(s).")
+        show = [m for m in models if "gemini" in m][:12] or models[:12]
+        for m in show:
+            print(f"     - {m}")
+        if len(models) > len(show):
+            print(f"     ... and {len(models) - len(show)} more")
+
+    # --- check 2: the specific model --------------------------------------
+    print()
+    line()
+    print(f"CHECK 2  Does {cfg.synthesis.model!r} work?")
+    line()
+    if models is not None and cfg.synthesis.model not in models:
+        print(f"  {cfg.synthesis.model!r} is NOT in the list above.")
+        pref = ("gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash",
+                "gemini-flash-latest")
+        pick = next((p for p in pref if p in models),
+                    next((m for m in models if "flash" in m),
+                         models[0] if models else None))
+        if pick:
+            print()
+            print(f"  Use this instead — add to your .env:")
+            print(f"     RIPPLE_MODEL={pick}")
+            print()
+            print("  Then run this script again.")
+        return 1
+
+    print("  Making one small generation call ...")
     ok, detail = provider.preflight()
     print()
     if ok:
-        print(f"RESULT: WORKING. The model replied {detail!r}.")
+        line("=")
+        print(f"  RESULT: WORKING. The model replied {detail!r}.")
+        line("=")
         print()
-        print("You are clear to run:")
-        print("  python -m evaluation.run_bench --split dev --provider "
-              f"{wanted} \\")
-        print("         --systems B1_static_rag,B3_ripple --out results_gemini")
+        print("  You are clear to run the benchmark:")
+        print("     python -m evaluation.run_bench --split dev \\")
+        print(f"            --provider {wanted} "
+              "--systems B1_static_rag,B3_ripple \\")
+        print("            --out results_gemini")
         return 0
 
-    print(f"RESULT: REJECTED — {detail}")
+    print(f"  FAILED: {detail}")
     print()
-    print("Common causes, in order of likelihood:")
-    print("  1. The key is an OAuth credential, not an API key "
-          "(should start 'AIza').")
-    print("  2. The key was revoked or belongs to a different project.")
-    print("  3. The model name is wrong for your account. Try setting")
-    print("     RIPPLE_MODEL=gemini-1.5-flash in .env and run this again.")
-    print("  4. No billing/quota on the project.")
+    print("  Authentication worked, so the key is fine — this is about the")
+    print("  model or your quota. Check the model name above, and whether")
+    print("  the project has free-tier quota left for today.")
     return 1
 
 
