@@ -30,7 +30,13 @@ def _load_dotenv() -> None:
         if not os.path.exists(path):
             continue
         try:
-            with open(path, encoding="utf-8") as fh:
+            # utf-8-SIG, not utf-8. PowerShell 5.1's `Out-File -Encoding utf8`
+            # writes a byte-order mark, which attaches itself to the first key
+            # in the file -- so RIPPLE_PROVIDER silently became
+            # "\ufeffRIPPLE_PROVIDER" and was never set, while every later line
+            # loaded correctly. A config bug that affects exactly one line is
+            # far harder to see than one that breaks the whole file.
+            with open(path, encoding="utf-8-sig") as fh:
                 for line in fh:
                     line = line.strip()
                     if not line or line.startswith("#") or "=" not in line:

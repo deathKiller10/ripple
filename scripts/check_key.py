@@ -36,6 +36,26 @@ def main() -> int:
     cfg = Config()
     wanted = (cfg.synthesis.provider or "stub").lower()
 
+    # If the provider says "stub" but a key is sitting in the environment,
+    # something ate the RIPPLE_PROVIDER line -- almost always an encoding
+    # problem in .env. Say so, then test the key anyway rather than stopping
+    # on a technicality.
+    if wanted == "stub":
+        for guess, var in (("gemini", "GEMINI_API_KEY"),
+                           ("openai", "OPENAI_API_KEY")):
+            if os.environ.get(var):
+                print("  NOTE: RIPPLE_PROVIDER is not set, but " + var)
+                print(f"        is. Assuming provider={guess!r} and testing "
+                      "it anyway.")
+                print("        Fix .env so RIPPLE_PROVIDER=" + guess
+                      + " is picked up,")
+                print("        or the benchmark will need --provider "
+                      + guess + " every time.")
+                print()
+                wanted = guess
+                cfg.synthesis.provider = guess
+                break
+
     line("=")
     print("Ripple key check")
     line("=")

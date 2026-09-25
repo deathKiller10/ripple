@@ -103,10 +103,27 @@ def main():
     has_env = os.path.exists(env_path)
     key = os.environ.get("GEMINI_API_KEY", "")
     if not key and has_env:
-        for line in open(env_path, encoding="utf-8"):
+        for line in open(env_path, encoding="utf-8-sig"):
             line = line.strip()
             if line.startswith("GEMINI_API_KEY="):
                 key = line.split("=", 1)[1].strip()
+
+    if has_env:
+        # Show what actually parsed, so a malformed file is visible rather
+        # than silently half-working.
+        try:
+            with open(env_path, "rb") as fh:
+                raw = fh.read()
+            if raw.startswith(b"\xef\xbb\xbf"):
+                print(INFO + "note: .env has a byte-order mark; handled.")
+            parsed = []
+            for line in raw.decode("utf-8-sig", "replace").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    parsed.append(line.split("=", 1)[0].strip())
+            print(INFO + ".env defines: " + (", ".join(parsed) or "(nothing)"))
+        except OSError:
+            pass
 
     if not has_env:
         print(BAD + "no .env file found")

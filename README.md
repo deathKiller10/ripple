@@ -61,7 +61,19 @@ GEMINI_API_KEY=your_key_here
 RIPPLE_RPM=12
 ```
 
-`.env` is git-ignored and loaded automatically. **Start with two systems** —
+`.env` is git-ignored and loaded automatically (byte-order marks tolerated —
+PowerShell 5.1 writes one and it corrupts only the first line, which is an
+unpleasant way to lose an hour).
+
+On Windows, write it without a BOM:
+
+```powershell
+"RIPPLE_PROVIDER=gemini`nGEMINI_API_KEY=your_key_here`nRIPPLE_RPM=12" | `
+  Set-Content -Path .env -Encoding ascii
+```
+
+Check what was parsed with `python scripts/setup.py`, or diagnose a provider
+with `python scripts/check_key.py`. **Start with two systems** —
 the full four-system run issues roughly 600 calls because B2 retrieves on
 every chunk by design, and that will exhaust a free tier:
 
