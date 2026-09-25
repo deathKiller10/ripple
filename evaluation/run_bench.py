@@ -70,14 +70,33 @@ def measure_trace_coverage(trace_dir: str) -> float:
     return len(want & seen) / max(1, len(want))
 
 
-def run_system(name, engine, scenarios, sink_dir=None, **kw):
+def run_system(name, engine, scenarios, sink_dir=None, progress=True, **kw):
+    """Run one system across all scenarios.
+
+    Prints per-scenario progress. An earlier version printed nothing until a
+    whole system finished, so a rate-limited run sat silent for ten minutes
+    and was indistinguishable from a hang. Silence is not a neutral default
+    for anything that takes minutes.
+    """
     runs = []
     t0 = time.perf_counter()
-    for sc in scenarios:
+    n = len(scenarios)
+    for i, sc in enumerate(scenarios, 1):
         if name == "B3_ripple":
             runs.append(run_b3(engine, sc, sink_dir=sink_dir, **kw))
         else:
             runs.append(RUNNERS[name](engine, sc))
+        if progress:
+            elapsed = time.perf_counter() - t0
+            eta = (elapsed / i) * (n - i)
+            calls = getattr(engine.provider, "calls_made", None)
+            extra = f"  {calls} llm calls" if calls else ""
+            sys.stderr.write(
+                f"\r  {name:<20} {i:>3}/{n}  {elapsed:6.1f}s elapsed"
+                f"  ~{eta:5.1f}s left{extra}      ")
+            sys.stderr.flush()
+    if progress:
+        sys.stderr.write("\n")
     return runs, time.perf_counter() - t0
 
 
@@ -120,6 +139,27 @@ def main(argv=None):
           f"provider={engine.provider.name}  embedder={cfg.embedder}  "
           f"reranker={getattr(engine.reranker, 'name', '?')}")
     wanted = (cfg.synthesis.provider or "stub").lower()
+
+    if engine.provider.name != "stub" and hasattr(engine.provider, "preflight"):
+        print("  checking the provider with one call ...", end="", flush=True)
+        ok, detail = engine.provider.preflight()
+        if ok:
+            print(f" ok  (model replied {detail!r})")
+        else:
+            print(" FAILED")
+            print()
+            print("!" * 74)
+            print(f"  The {wanted} provider rejected a test call:")
+            print(f"     {detail}")
+            print()
+            print("  Nothing was run. Fix the key or model and try again.")
+            print("  A Google AI Studio key looks like 'AIza...' \u2014 if yours")
+            print("  starts with something else you may have created an OAuth")
+            print("  credential rather than an API key. Make one at")
+            print("     https://aistudio.google.com/app/apikey")
+            print("!" * 74)
+            return 2
+
     if wanted != "stub" and engine.provider.name == "stub":
         env_var = "GEMINI_API_KEY" if wanted == "gemini" else "OPENAI_API_KEY"
         print()

@@ -170,9 +170,26 @@ class GeminiProvider(Provider):
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY", "")
         self.bucket = TokenBucket(rpm)
         self.cost_table = cost_table
+        self.fatal_error = ""
+        self.calls_made = 0
 
     def available(self) -> bool:
         return bool(self.api_key)
+
+    def preflight(self) -> tuple[bool, str]:
+        """One cheap call to prove the key and model work.
+
+        Worth the single request: without it, a rejected key produces a
+        benchmark that runs for ten minutes and reports nothing useful.
+        """
+        if not self.available():
+            return False, "no API key set (GEMINI_API_KEY)"
+        res = self.complete("Reply with the single word: ok", max_tokens=8)
+        if self.fatal_error:
+            return False, self.fatal_error
+        if res.degraded:
+            return False, res.error or "unknown failure"
+        return True, (res.text or "").strip()[:40]
 
     def complete(self, prompt: str, max_tokens: int = 600,
                  json_mode: bool = False) -> LLMResult:
@@ -203,6 +220,21 @@ class GeminiProvider(Provider):
                     time.sleep(2 ** attempt * 2.0)
                     last_err = "rate_limited"
                     continue
+                if r.status_code in (400, 401, 403, 404):
+                    # FAIL FAST on a permanent error. Retrying a rejected key
+                    # or a wrong model name never succeeds, and an earlier
+                    # version retried four times with backoff on every call --
+                    # so a bad key turned into ten silent seconds per call and
+                    # a benchmark that looked hung rather than broken.
+                    detail = ""
+                    try:
+                        detail = (r.json().get("error", {})
+                                  .get("message", ""))[:200]
+                    except Exception:
+                        detail = r.text[:200]
+                    self.fatal_error = f"HTTP {r.status_code}: {detail}"
+                    return LLMResult("", Cost(), degraded=True,
+                                     error=self.fatal_error)
                 r.raise_for_status()
                 data = r.json()
                 text = ""
@@ -214,6 +246,7 @@ class GeminiProvider(Provider):
                 ct = int(usage.get("candidatesTokenCount", 0))
                 money = (self.cost_table.compute(pt, ct)
                          if self.cost_table else 0.0)
+                self.calls_made += 1
                 return LLMResult(
                     text=text,
                     cost=Cost(prompt_tokens=pt, completion_tokens=ct,
@@ -240,9 +273,21 @@ class OpenAIProvider(Provider):
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
         self.bucket = TokenBucket(rpm)
         self.cost_table = cost_table
+        self.fatal_error = ""
+        self.calls_made = 0
 
     def available(self) -> bool:
         return bool(self.api_key)
+
+    def preflight(self) -> tuple[bool, str]:
+        if not self.available():
+            return False, "no API key set (OPENAI_API_KEY)"
+        res = self.complete("Reply with the single word: ok", max_tokens=8)
+        if self.fatal_error:
+            return False, self.fatal_error
+        if res.degraded:
+            return False, res.error or "unknown failure"
+        return True, (res.text or "").strip()[:40]
 
     def complete(self, prompt: str, max_tokens: int = 600,
                  json_mode: bool = False) -> LLMResult:
@@ -270,6 +315,10 @@ class OpenAIProvider(Provider):
                     time.sleep(2 ** attempt * 2.0)
                     last_err = "rate_limited"
                     continue
+                if r.status_code in (400, 401, 403, 404):
+                    self.fatal_error = f"HTTP {r.status_code}: {r.text[:200]}"
+                    return LLMResult("", Cost(), degraded=True,
+                                     error=self.fatal_error)
                 r.raise_for_status()
                 data = r.json()
                 text = data["choices"][0]["message"]["content"]
@@ -278,6 +327,7 @@ class OpenAIProvider(Provider):
                 ct = int(usage.get("completion_tokens", 0))
                 money = (self.cost_table.compute(pt, ct)
                          if self.cost_table else 0.0)
+                self.calls_made += 1
                 return LLMResult(
                     text=text,
                     cost=Cost(prompt_tokens=pt, completion_tokens=ct,
