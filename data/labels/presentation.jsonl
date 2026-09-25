@@ -82,6 +82,31 @@
 {"text": "my name is priya i will be assisting you today", "label": 1}
 {"text": "let me put you on hold briefly", "label": 1}
 {"text": "i am just bringing up your account", "label": 1}
+{"text": "good morning my name is priya how can i help you today", "label": 1}
+{"text": "good afternoon you are through to samsung support my name is rahul", "label": 1}
+{"text": "hello there my name is anita how may i assist you", "label": 1}
+{"text": "hi you are speaking with vikram how can i help", "label": 1}
+{"text": "good evening thank you for calling how can i help you", "label": 1}
+{"text": "my name is deepa and i will be looking after your case today", "label": 1}
+{"text": "thanks for calling samsung care you are speaking with sana", "label": 1}
+{"text": "hello my name is arjun what can i do for you", "label": 1}
+{"text": "good morning thanks for holding my name is meera", "label": 1}
+{"text": "you are through to technical support this is karan speaking", "label": 1}
+{"text": "hi there sorry to keep you waiting my name is neha", "label": 1}
+{"text": "welcome to samsung support how can i help you this morning", "label": 1}
+{"text": "thank you for your patience let me bring up your details", "label": 1}
+{"text": "sorry about the wait i am just pulling up the account now", "label": 1}
+{"text": "bear with me a moment while i check that for you", "label": 1}
+{"text": "let me just take a look at that for you now", "label": 1}
+{"text": "i am going to put you on a brief hold is that alright", "label": 1}
+{"text": "thanks for waiting i have your details up now", "label": 1}
+{"text": "before we start can i confirm the number you are calling from", "label": 1}
+{"text": "is it alright if i call you by your first name", "label": 1}
+{"text": "no problem at all i can help you with that", "label": 1}
+{"text": "i understand completely let me see what i can do", "label": 1}
+{"text": "that is all done for you is there anything else today", "label": 1}
+{"text": "thank you for your time have a good rest of your day", "label": 1}
+{"text": "glad i could help take care now", "label": 1}
 {"text": "what is the warranty period", "label": 0}
 {"text": "how long does a repair take", "label": 0}
 {"text": "is this covered under warranty", "label": 0}

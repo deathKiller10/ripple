@@ -93,6 +93,9 @@ class StabilityState:
         self.prev_ids = None
         self.stability = 0.0
         self.drift = 1.0
+        self._seeded = False
+
+    _seeded: bool = False
 
     def update(self, ids: list[str]) -> tuple[float, float]:
         """Feed one shadow-retrieval result. Returns (stability, drift)."""
@@ -106,11 +109,26 @@ class StabilityState:
 
         inst_stability = rbo(ids, self.prev_ids, self.rbo_p)
         self.drift = 1.0 - inst_stability
-        # EMA so that a single noisy chunk does not trip a retrieval, and so
-        # that sustained agreement across several chunks is what fires it.
-        self.stability = (
-            self.ema_alpha * inst_stability + (1 - self.ema_alpha) * self.stability
-        )
+        if not self._seeded:
+            # SEED THE EMA WITH THE FIRST REAL OBSERVATION, not with zero.
+            #
+            # Starting an EMA at zero imposes a systematic warm-up lag: the
+            # first comparison yields alpha * rbo (about 0.50 for a settled
+            # prefix), so it takes three or four chunks to cross any useful
+            # threshold. That is invisible on long utterances and fatal on
+            # short ones -- measured on the 40-scenario dev split, every single
+            # eligible turn that failed to retrieve early was two or three
+            # chunks long. The controller was not mis-deciding; it was still
+            # warming up when the speaker finished.
+            self.stability = inst_stability
+            self._seeded = True
+        else:
+            # EMA so that one noisy chunk does not trip a retrieval, and
+            # sustained agreement across chunks is what fires it.
+            self.stability = (
+                self.ema_alpha * inst_stability
+                + (1 - self.ema_alpha) * self.stability
+            )
         self.prev_ids = ids
         self.history.append(
             {"drift": round(self.drift, 4), "stability": round(self.stability, 4)}

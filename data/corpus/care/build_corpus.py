@@ -498,7 +498,26 @@ doc("DOC_SVC_04", "Escalation and complaint handling", "service", [
 # ---------------------------------------------------------------------------
 
 
+def _merge_extra():
+    """Part two of the pack lives in build_corpus_extra.py, imported here.
+
+    Split only for readability; identical shape. Merging rather than
+    concatenating means a doc_id defined twice is caught loudly.
+    """
+    try:
+        from build_corpus_extra import EXTRA
+    except ImportError:
+        import sys
+        sys.path.insert(0, HERE)
+        from build_corpus_extra import EXTRA
+    clash = set(DOCS) & set(EXTRA)
+    if clash:
+        raise RuntimeError(f"duplicate doc_id across corpus parts: {sorted(clash)}")
+    DOCS.update(EXTRA)
+
+
 def write():
+    _merge_extra()
     written = []
     for doc_id, d in DOCS.items():
         lines = ["---", f"doc_id: {d['doc_id']}", f"title: {d['title']}",

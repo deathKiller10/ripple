@@ -100,7 +100,8 @@ class RippleSession:
                 pass
         self.controller = RetrievalController(index, cfg.controller, pres)
 
-        self.reranker = reranker if reranker is not None else build_reranker(index)
+        self.reranker = (reranker if reranker is not None
+                         else build_reranker(index, cfg.retrieval.reranker))
         self.provider = provider if provider is not None else build_provider(
             cfg.synthesis, cfg.cost)
         self.extractor = SubQueryExtractor(
@@ -224,9 +225,7 @@ class RippleSession:
         )
 
         t0 = time.perf_counter()
-        hits = self.index.search(query, k=self.cfg.retrieval.top_k,
-                                 rrf_k=self.cfg.retrieval.rrf_k,
-                                 dense_weight=self.cfg.retrieval.dense_weight)
+        hits = self._search(query)
         for h in hits:
             self.pool.add(h.chunk, h.score, intent.id, t,
                           out.trigger.value if out.trigger else "provisional",
@@ -243,6 +242,27 @@ class RippleSession:
         if self.speculative and self.first_token_t is None:
             self._maybe_speculate(t, intent, hits)
 
+    def _relevance_ok(self, question: str, items) -> bool:
+        """Abstention gate, applied to the SPECULATIVE path too.
+
+        Speculation runs before the utterance ends and originally called the
+        synthesiser directly, which meant a draft claim could assert something
+        the end-of-turn abstention gate would have blocked -- and because the
+        draft was already emitted and cited, the turn ended with a citation on
+        a question the corpus does not answer. A gate that only guards the slow
+        path is not a gate.
+        """
+        if not items:
+            return False
+        rel = assess_relevance(question, [i.chunk for i in items],
+                               self.vocabulary)
+        self.bus.emit(EventType.GROUNDING_CHECKED,
+                      detail={"stage": "pre_speculation_relevance",
+                              **rel.to_dict()})
+        if not rel.sufficient:
+            self.bus.emit(EventType.UNCERTAINTY_EMITTED, uncertainty=rel.reason)
+        return rel.sufficient
+
     @instrumented("speculate_closed")
     def _speculate_on_closed_intents(self, t: float, exclude: str) -> None:
         """Answer an intent the speaker has already moved on from.
@@ -258,7 +278,7 @@ class RippleSession:
             if any(c.intent_id == intent.id for c in self.graph.active_claims()):
                 continue
             items = self._rank_pool_for(intent.focus(), intent.id)[:3]
-            if not items:
+            if not self._relevance_ok(intent.focus(), items):
                 continue
             res = self.synthesizer.synthesize(intent.focus(), items)
             if not res.claims:
@@ -294,18 +314,14 @@ class RippleSession:
         """
         if len(hits) < 2 or len(intent.text.split()) < 6:
             return
-        scored = apply_rerank(self.reranker, intent.text, hits[:6], 6)
-        top = getattr(scored[0], "rerank_score", None) or scored[0].score
-        second = getattr(scored[1], "rerank_score", None) or scored[1].score
-        # Relative margin, not an absolute score: reranker scales differ
-        # between backends and an absolute cut-off would silently disable
-        # speculation whenever the reranker changed.
-        margin = (top - second) / (abs(top) + 1e-6)
-        if top <= 0 or margin < 0.10:
+        conf, margin = self._semantic_confidence(intent.text, hits[:6])
+        if conf < 0.30 or margin < 0.06:
             return  # ambiguous top-1; more words are worth waiting for
 
-        items = [self.pool.get(h.chunk.chunk_id) for h in scored[:3]]
+        items = [self.pool.get(h.chunk.chunk_id) for h in hits[:3]]
         items = [i for i in items if i]
+        if not self._relevance_ok(intent.text, items):
+            return
         res = self.synthesizer.synthesize(intent.text, items)
         if not res.claims:
             return
@@ -385,13 +401,21 @@ class RippleSession:
                       detail={"retrieval_required": False,
                               "reason": "presentation_restructure",
                               "retrievals": 0, "llm_calls": 0})
+        # Report what ACTUALLY happened, not what the resolution path did.
+        # A turn resolved by suppression can still have triggered a speculative
+        # retrieval earlier in the utterance, before the controller had heard
+        # enough to recognise it as presentation or social. Reporting zero
+        # there would hide a real false trigger from our own gate G2 figure,
+        # which is precisely the half of that gate teams are tempted to omit.
         return TurnResult(
             kind="suppressed",
             version=self.graph.versions[-1].version if self.graph.versions else 0,
             answer=answer, citations=citations, uncertainty="",
             change_summary={"reason": "presentation_restructure",
-                            "retrievals": 0},
-            retrievals_this_turn=0, cost=Cost(),
+                            "retrievals": self.turn_retrievals,
+                            "early_retrieval_before_suppression":
+                                self.turn_retrievals > 0},
+            retrievals_this_turn=self.turn_retrievals, cost=self.turn_cost,
         )
 
     def _restructure(self, request: str, claims) -> str:
@@ -432,9 +456,7 @@ class RippleSession:
         re-score, delta-retrieve, patch.
         """
         # -- step 0: what does this constraint activate in the corpus? ------
-        probe = self.index.search(utterance, k=6,
-                                  rrf_k=self.cfg.retrieval.rrf_k,
-                                  dense_weight=self.cfg.retrieval.dense_weight)
+        probe = self._search(utterance, k=6)
         probe_items = []
         con_intent = self.graph.open_intent(utterance, t, source="constraint")
         for h in probe:
@@ -479,9 +501,7 @@ class RippleSession:
             self.guide_events.append(
                 GuideRetrievalEvent(timestamp_s=t, query=q,
                                     trigger=Trigger.DELTA.value))
-            hits = self.index.search(q, k=self.cfg.retrieval.top_k,
-                                     rrf_k=self.cfg.retrieval.rrf_k,
-                                     dense_weight=self.cfg.retrieval.dense_weight)
+            hits = self._search(q)
             for h in hits:
                 self.pool.add(h.chunk, h.score, intent.id, t,
                               Trigger.DELTA.value, provisional=False)
@@ -588,10 +608,7 @@ class RippleSession:
                 self.guide_events.append(
                     GuideRetrievalEvent(timestamp_s=t, query=intent.text,
                                         trigger=Trigger.MULTI_INTENT.value))
-                hits = self.index.search(
-                    intent.text, k=self.cfg.retrieval.top_k,
-                    rrf_k=self.cfg.retrieval.rrf_k,
-                    dense_weight=self.cfg.retrieval.dense_weight)
+                hits = self._search(intent.text)
                 for h in hits:
                     self.pool.add(h.chunk, h.score, intent.id, t,
                                   Trigger.MULTI_INTENT.value, provisional=False)
@@ -606,10 +623,18 @@ class RippleSession:
 
         # -- M3: coverage-budgeted fusion ----------------------------------
         vectors = self._vectors_for(per_intent)
-        fr = fusion_mod.coverage_budgeted(
-            per_intent, budget=self.cfg.retrieval.context_budget,
-            per_intent_floor=self.cfg.retrieval.per_intent_floor,
-            mmr_lambda=self.cfg.retrieval.mmr_lambda, vectors=vectors)
+        if self.cfg.retrieval.fusion == "rrf":
+            # Ablation A2: plain pooled RRF across sub-queries, the standard
+            # approach. Same candidates, same reranking, same budget -- only
+            # the allocation rule differs.
+            fr = fusion_mod.rrf_pool(
+                per_intent, budget=self.cfg.retrieval.context_budget,
+                rrf_k=self.cfg.retrieval.rrf_k)
+        else:
+            fr = fusion_mod.coverage_budgeted(
+                per_intent, budget=self.cfg.retrieval.context_budget,
+                per_intent_floor=self.cfg.retrieval.per_intent_floor,
+                mmr_lambda=self.cfg.retrieval.mmr_lambda, vectors=vectors)
         self.bus.emit(EventType.FUSION_COMPLETED, allocation=fr.allocation,
                       retrieved=[h.cite for h in fr.selected],
                       rerank_scores=[round(getattr(h, "rerank_score", 0.0) or 0.0, 4)
@@ -735,6 +760,44 @@ class RippleSession:
 
     # -- helpers -----------------------------------------------------------
 
+    def _semantic_confidence(self, query: str,
+                             hits: list[Hit]) -> tuple[float, float]:
+        """How decisively does one chunk match this intent?
+
+        Deliberately measured in EMBEDDING space rather than on the reranker's
+        score. Reranker scores live on different scales per backend, and an
+        earlier version keyed speculation off them -- which meant switching the
+        reranker off silently switched speculative synthesis off too, and
+        ablation A5 was measuring two changes at once. Cosine similarity is
+        comparable across configurations, so the ablation now isolates the
+        reranker alone.
+
+        Returns (top similarity, relative margin over the runner-up).
+        """
+        if len(hits) < 2:
+            return 0.0, 0.0
+        try:
+            qv = self.index.encode_query(query)
+            sims = []
+            for h in hits:
+                row = self.index.chunks.index(self.index.by_id[h.chunk.chunk_id])
+                sims.append(float(np.dot(qv, self.index.matrix[row])))
+        except Exception:
+            return 0.0, 0.0
+        sims.sort(reverse=True)
+        top, second = sims[0], sims[1]
+        if top <= 0:
+            return top, 0.0
+        return top, (top - second) / (abs(top) + 1e-6)
+
+    def _search(self, query: str, k: int | None = None) -> list[Hit]:
+        """Single entry point for retrieval, so ablation switches apply
+        everywhere rather than to whichever call site was remembered."""
+        r = self.cfg.retrieval
+        return self.index.search(query, k=k or r.top_k, rrf_k=r.rrf_k,
+                                 dense_weight=r.dense_weight,
+                                 dense_only=r.dense_only)
+
     def _pool_hits_for(self, query: str, intent_id: str) -> list[Hit]:
         items = self.pool.for_intent(intent_id)
         hits = [Hit(chunk=i.chunk, score=i.score, rank=n)
@@ -814,7 +877,7 @@ class RippleEngine:
         self.cfg = cfg or Config()
         self.index = index or HybridIndex.load(self.cfg.index_path,
                                                self.cfg.embedder)
-        self.reranker = build_reranker(self.index)
+        self.reranker = build_reranker(self.index, self.cfg.retrieval.reranker)
         self.provider = build_provider(self.cfg.synthesis, self.cfg.cost)
 
     def session(self, session_id: Optional[str] = None, speculative: bool = True,

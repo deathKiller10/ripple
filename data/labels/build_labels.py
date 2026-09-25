@@ -110,6 +110,38 @@ PRESENTATION = [
     "my name is priya i will be assisting you today",
     "let me put you on hold briefly",
     "i am just bringing up your account",
+    # --- COMPOUND social openers -------------------------------------------
+    # Added after a measured false trigger on the dev split: the classifier
+    # scored the individual phrases "good morning how can i help" and "my name
+    # is priya" at 0.73, but their natural combination at 0.64, because TF-IDF
+    # dilutes over a longer string. Real support calls open with the compound
+    # form almost every time, so the training set had a hole exactly where the
+    # traffic is.
+    "good morning my name is priya how can i help you today",
+    "good afternoon you are through to samsung support my name is rahul",
+    "hello there my name is anita how may i assist you",
+    "hi you are speaking with vikram how can i help",
+    "good evening thank you for calling how can i help you",
+    "my name is deepa and i will be looking after your case today",
+    "thanks for calling samsung care you are speaking with sana",
+    "hello my name is arjun what can i do for you",
+    "good morning thanks for holding my name is meera",
+    "you are through to technical support this is karan speaking",
+    "hi there sorry to keep you waiting my name is neha",
+    "welcome to samsung support how can i help you this morning",
+    "thank you for your patience let me bring up your details",
+    "sorry about the wait i am just pulling up the account now",
+    "bear with me a moment while i check that for you",
+    "let me just take a look at that for you now",
+    "i am going to put you on a brief hold is that alright",
+    "thanks for waiting i have your details up now",
+    "before we start can i confirm the number you are calling from",
+    "is it alright if i call you by your first name",
+    "no problem at all i can help you with that",
+    "i understand completely let me see what i can do",
+    "that is all done for you is there anything else today",
+    "thank you for your time have a good rest of your day",
+    "glad i could help take care now",
 ]
 
 INFORMATIONAL = [

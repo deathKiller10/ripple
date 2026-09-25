@@ -177,34 +177,64 @@ def main(argv=None):
                   f"{row['value']:>8} {row['op']} {row['target']}")
 
     # ---------------- ablations ----------------
+    # Each variant changes EXACTLY ONE thing and shares everything else --
+    # same index, same corpus, same provider, same scenarios. A comparison
+    # that moves two variables at once measures nothing, which is why these
+    # are config switches on the real engine rather than separate baselines.
     if args.ablations:
         print()
-        print("ABLATIONS")
-        print("-" * 62)
+        print("ABLATIONS  (each changes one variable; all else held constant)")
+        print("-" * 78)
+
+        def variant(**over):
+            c = Config()
+            if args.provider:
+                c.synthesis.provider = args.provider
+            if args.embedder:
+                c.embedder = args.embedder
+            for path, val in over.items():
+                group, _, attr = path.partition(".")
+                setattr(getattr(c, group), attr, val)
+            return c
+
         variants = {
-            "A1_no_controller_retrieve_every_chunk": ("B2_naive_streaming", {}),
-            "A2_rrf_instead_of_coverage_budget": ("B3_ripple",
-                                                  {"_fusion": "rrf"}),
-            "A3_no_speculative_synthesis": ("B3_ripple",
-                                            {"speculative": False}),
+            "A1  controller OFF (retrieve every chunk)":
+                variant(**{"controller.always_retrieve": True}),
+            "A2  fusion = plain RRF (no coverage budget)":
+                variant(**{"retrieval.fusion": "rrf"}),
+            "A3  speculative synthesis OFF":
+                ("speculative_off", variant()),
+            "A4  add BM25 back (hybrid retrieval)":
+                variant(**{"retrieval.dense_only": False}),
+            "A5  reranker back ON (lexical-semantic)":
+                variant(**{"retrieval.reranker": "lexical"}),
         }
-        for label, (base, kw) in variants.items():
-            if base == "B3_ripple":
-                runs = []
-                for sc in scenarios:
-                    if kw.get("_fusion") == "rrf":
-                        os.environ["RIPPLE_FUSION"] = "rrf"
-                    runs.append(run_b3(engine, sc,
-                                       speculative=kw.get("speculative", True)))
-                os.environ.pop("RIPPLE_FUSION", None)
-            else:
-                runs, _ = run_system(base, engine, scenarios)
+
+        base = dict(rows).get("B3_ripple")
+        cols = [("TTFT med", "ttft_median"), ("early", "early_retrieval_rate"),
+                ("recall@k", "recall_at_k"),
+                ("intent cov", "per_intent_coverage"),
+                ("retr/turn", "retrievals_per_turn"),
+                ("tok/turn", "tokens_per_turn")]
+        print(f"{'variant':<44}" + "".join(f"{c[0]:>12}" for c in cols))
+        if base:
+            bd = base.to_dict()
+            print(f"{'B3  full system (reference)':<44}"
+                  + "".join(fmt(bd.get(k), 12) for _, k in cols))
+        print("-" * 78)
+
+        for label, spec in variants.items():
+            spec_cfg = spec[1] if isinstance(spec, tuple) else spec
+            spec_cfg.index_path = cfg.index_path
+            eng = RippleEngine(spec_cfg, index=engine.index)
+            speculative = not (isinstance(spec, tuple)
+                               and spec[0] == "speculative_off")
+            runs = [run_b3(eng, sc, speculative=speculative)
+                    for sc in scenarios]
             res = evaluate(runs, by_id, corpus_cites)
             report["ablations"][label] = res.to_dict()
             d = res.to_dict()
-            print(f"  {label:<40} TTFT={fmt(d.get('ttft_median'),8)} "
-                  f"retr/turn={d['retrievals_per_turn']:.2f} "
-                  f"intent_cov={d['per_intent_coverage']:.2f}")
+            print(f"{label:<44}" + "".join(fmt(d.get(k), 12) for _, k in cols))
 
     out_path = os.path.join(args.out, f"benchmark_{args.split}.json")
     with open(out_path, "w") as fh:

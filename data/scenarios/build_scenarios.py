@@ -324,7 +324,51 @@ def fragment(scenario: dict) -> dict:
     return scenario
 
 
+def _merge_extra():
+    try:
+        from build_scenarios_extra import EXTRA
+    except ImportError:
+        import sys
+        sys.path.insert(0, HERE)
+        from build_scenarios_extra import EXTRA
+    ids = {s["scenario_id"] for s in SCENARIOS}
+    clash = ids & {s["scenario_id"] for s in EXTRA}
+    if clash:
+        raise RuntimeError(f"duplicate scenario_id: {sorted(clash)}")
+    SCENARIOS.extend(EXTRA)
+
+
+def validate_gold():
+    """Every gold citation must exist in the corpus.
+
+    A gold label pointing at a chunk that is not there silently caps recall and
+    looks like a retrieval failure. This check is why the build fails loudly
+    instead.
+    """
+    import sys
+    root = os.path.dirname(os.path.dirname(HERE))
+    sys.path.insert(0, root)
+    from ripple.corpus.loader import load_corpus
+
+    corpus_path = os.path.join(root, "data", "corpus", "care")
+    real = {c.cite for c in load_corpus(corpus_path)}
+    bad = []
+    for sc in SCENARIOS:
+        for g in sc["gold"]:
+            for intent, cites in g["gold_doc_ids"].items():
+                for cite in cites:
+                    if cite not in real:
+                        bad.append((sc["scenario_id"], intent, cite))
+    if bad:
+        for sid, intent, cite in bad:
+            print(f"  MISSING  {sid}  {intent!r} -> {cite}")
+        raise SystemExit(f"{len(bad)} gold citations do not exist in the corpus")
+    return len(real)
+
+
 def main():
+    _merge_extra()
+    n_real = validate_gold()
     for s in SCENARIOS:
         fragment(s)
     for split in ("dev", "heldout"):
@@ -339,6 +383,7 @@ def main():
                 kinds[g["turn_kind"]] = kinds.get(g["turn_kind"], 0) + 1
         print(f"{split}: {len(rows)} scenarios, "
               f"{sum(len(r['gold']) for r in rows)} labelled turns  {kinds}")
+    print(f"gold citations validated against {n_real} corpus chunks")
 
 
 if __name__ == "__main__":

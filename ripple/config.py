@@ -50,6 +50,14 @@ class ControllerConfig:
     # trigger is this dissimilar from every active intent.
     jump_similarity: float = field(default_factory=lambda: _f("RIPPLE_JUMP_SIM", 0.42))
 
+    # --- ablation switch A1 -------------------------------------------------
+    # Retrieve on every chunk, bypassing the stability policy entirely. This
+    # is the pitfall the guide names first; having it as a switch means the
+    # ablation isolates the CONTROLLER and nothing else, unlike comparing
+    # against the naive-streaming baseline, which also changes state handling.
+    always_retrieve: bool = field(
+        default_factory=lambda: os.environ.get("RIPPLE_ALWAYS_RETRIEVE") == "1")
+
     # Cost asymmetry used by the calibration sweep. A wasted shadow retrieval
     # costs ~4ms of CPU; a late retrieval costs ~700ms of user-visible silence.
     c_waste: float = field(default_factory=lambda: _f("RIPPLE_C_WASTE", 1.0))
@@ -73,6 +81,50 @@ class RetrievalConfig:
     per_intent_floor: int = field(default_factory=lambda: _i("RIPPLE_FLOOR", 2))
     # MMR trade-off: 1.0 = pure relevance, 0.0 = pure diversity.
     mmr_lambda: float = field(default_factory=lambda: _f("RIPPLE_MMR", 0.72))
+
+    # --- ablation switches --------------------------------------------------
+    # A2: "coverage" = per-intent floor + marginal gain + MMR (M3);
+    #     "rrf" = plain pooled reciprocal rank fusion across sub-queries.
+    fusion: str = field(
+        default_factory=lambda: os.environ.get("RIPPLE_FUSION", "coverage"))
+    # A4: the sparse half of the hybrid.
+    #
+    # DEFAULT DEPENDS ON THE EMBEDDER, because the measurement says it should.
+    # `tfidf-svd` is built on word AND character n-grams, so it already matches
+    # exact identifiers -- part numbers, diagnostic codes, firmware builds.
+    # Measured on the dev split, adding BM25 on top of it LOWERED recall from
+    # 0.960 to 0.893 and won nothing on a 16-query identifier probe (16/16
+    # hit@1 either way): two correlated lexical signals competing for the same
+    # slots, with the noisier one displacing good hits. So BM25 is off by
+    # default here, and one dependency leaves the hot path.
+    #
+    # `bge-small` is a purely semantic embedder with no character n-grams and
+    # no defence against an unseen part number, so the two signals are genuinely
+    # complementary there and the hybrid is kept. Re-run ablation A4 after any
+    # embedder change rather than assuming this still holds.
+    dense_only: bool = field(default_factory=lambda: (
+        os.environ.get("RIPPLE_DENSE_ONLY",
+                       "1" if os.environ.get("RIPPLE_EMBEDDER", "tfidf-svd")
+                       in ("tfidf-svd", "tfidf", "lsa") else "0") == "1"))
+    # A5: reranker backend -- "none" | "lexical" | "cross-encoder" | "auto".
+    #
+    # DEFAULT IS OFF, because the measurement said so and we believed it.
+    # Our lexical-semantic reranker was built to re-sort the final candidate
+    # set. Measured on the dev split it LOWERED per-intent coverage from 0.736
+    # to 0.689, left recall and time-to-first-token unchanged, and cost about
+    # 90 ms per sub-query. It re-sorted a fused ranking that was already
+    # better than its own scoring function, so it could only do harm.
+    #
+    # Removing a stage we built is the parsimony rule applied to ourselves:
+    # the guide grades cost-to-performance, and a component that costs latency
+    # and returns nothing is exactly what that grade is for.
+    #
+    # `cross-encoder` (ms-marco-MiniLM, needs torch) is a genuinely different
+    # quality tier and remains available. It has NOT been measured here, so it
+    # is not the default and no claim is made for it -- re-run ablation A5
+    # before switching it on.
+    reranker: str = field(
+        default_factory=lambda: os.environ.get("RIPPLE_RERANKER", "none"))
 
 
 @dataclass

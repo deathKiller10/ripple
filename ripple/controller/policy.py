@@ -97,19 +97,28 @@ class RetrievalController:
                 shadow_ids=[],
             )
 
-        words = prefix.split()
-        if len(words) < cfg.min_prefix_words:
-            return ControllerOutput(
-                decision=Decision.WAIT, trigger=None, stability=0.0, drift=1.0,
-                novelty=0.0, semantic_jump=False, jump_similarity=0.0,
-                reason=f"prefix_too_short ({len(words)}<{cfg.min_prefix_words})",
-                shadow_ids=[],
-            )
-
         # -- 2. shadow retrieval: the only work done on every chunk ---------
+        #
+        # This runs BEFORE the minimum-length guard, deliberately. An earlier
+        # version returned WAIT on a short prefix without observing anything,
+        # which meant the stability series started one chunk late and a short
+        # utterance ended before the controller had two observations to compare.
+        # The guard exists to stop us FIRING on a fragment, not to stop us
+        # LOOKING at one -- and looking is nearly free, which is the whole
+        # premise of retrieval-space stability.
         shadow_ids = self.index.shadow(prefix, cfg.shadow_k)
         stability, drift = self.state.update(shadow_ids)
         nov = novelty(shadow_ids, pool_ids)
+
+        words = prefix.split()
+        if len(words) < cfg.min_prefix_words:
+            return ControllerOutput(
+                decision=Decision.WAIT, trigger=None, stability=stability,
+                drift=drift, novelty=nov, semantic_jump=False,
+                jump_similarity=0.0,
+                reason=f"prefix_too_short ({len(words)}<{cfg.min_prefix_words})",
+                shadow_ids=shadow_ids,
+            )
 
         # -- 3. has a second topic opened? ---------------------------------
         jumped, jump_sim = False, 1.0
@@ -137,6 +146,18 @@ class RetrievalController:
             )
 
         # -- 4. the main gate ----------------------------------------------
+        if cfg.always_retrieve:
+            # Ablation A1: the controller is disabled and every chunk
+            # retrieves. Everything downstream is unchanged.
+            self.fired_once = True
+            return ControllerOutput(
+                decision=Decision.RETRIEVE, trigger=Trigger.PROVISIONAL,
+                stability=stability, drift=drift, novelty=nov,
+                semantic_jump=False, jump_similarity=jump_sim,
+                reason="ablation:always_retrieve (controller disabled)",
+                shadow_ids=shadow_ids,
+            )
+
         if stability >= cfg.theta and nov >= cfg.nu:
             self.fired_once = True
             return ControllerOutput(

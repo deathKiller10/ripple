@@ -155,17 +155,24 @@ class HybridIndex:
         return [self.chunks[i].chunk_id for i, _ in self.dense(qv, k)]
 
     def search(self, text: str, k: int = 20, rrf_k: int = 60,
-               dense_weight: float = 0.5) -> list[Hit]:
-        """Full hybrid retrieval for one sub-query."""
+               dense_weight: float = 0.5,
+               dense_only: bool = False) -> list[Hit]:
+        """Full hybrid retrieval for one sub-query.
+
+        `dense_only` is ablation A4: drop the BM25 half. Everything else --
+        depth, fusion constant, reranking downstream -- is untouched, so the
+        measured difference is attributable to lexical matching alone.
+        """
         self.calls += 1
         depth = max(k * 2, 30)
         qv = self.encode_query(text)
         d_hits = self.dense(qv, depth)
-        s_hits = self.sparse(text, depth)
+        s_hits = [] if dense_only else self.sparse(text, depth)
 
         fused: dict[int, float] = {}
+        dw = 1.0 if dense_only else dense_weight
         for rank, (i, _) in enumerate(d_hits):
-            fused[i] = fused.get(i, 0.0) + dense_weight / (rrf_k + rank + 1)
+            fused[i] = fused.get(i, 0.0) + dw / (rrf_k + rank + 1)
         for rank, (i, _) in enumerate(s_hits):
             fused[i] = fused.get(i, 0.0) + (1 - dense_weight) / (rrf_k + rank + 1)
 
