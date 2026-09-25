@@ -135,9 +135,13 @@ def main(argv=None):
     scenarios = load_scenarios(path)
     by_id = {s.scenario_id: s for s in scenarios}
 
+    model_note = (f"  model={cfg.synthesis.model}"
+                  if engine.provider.name != "stub" else "")
     print(f"split={args.split}  scenarios={len(scenarios)}  "
-          f"provider={engine.provider.name}  embedder={cfg.embedder}  "
+          f"provider={engine.provider.name}{model_note}  "
+          f"embedder={cfg.embedder}  "
           f"reranker={getattr(engine.reranker, 'name', '?')}")
+    report["model"] = cfg.synthesis.model
     wanted = (cfg.synthesis.provider or "stub").lower()
 
     if engine.provider.name != "stub" and hasattr(engine.provider, "preflight"):
@@ -287,6 +291,13 @@ def main(argv=None):
             report["ablations"][label] = res.to_dict()
             d = res.to_dict()
             print(f"{label:<44}" + "".join(fmt(d.get(k), 12) for _, k in cols))
+
+    if engine.provider.name != "stub" and not cfg.cost.configured:
+        print()
+        print("  NOTE: tokens per turn are measured; the currency column is 0")
+        print("        because no prices are configured. Set RIPPLE_PRICE_IN")
+        print("        and RIPPLE_PRICE_OUT from the provider's pricing page")
+        print(f"        for {cfg.synthesis.model} to get a cost-per-turn figure.")
 
     out_path = os.path.join(args.out, f"benchmark_{args.split}.json")
     with open(out_path, "w") as fh:

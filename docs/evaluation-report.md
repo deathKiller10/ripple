@@ -36,6 +36,15 @@ happened here and nowhere else. `heldout` = 34 scenarios, 43 labelled turns,
 **reserved for a single run after feature freeze and not yet executed.** The
 split was declared in `data/scenarios/build_scenarios.py` before any tuning.
 
+**Model naming.** Any figure from a real-provider run must be reported beside
+the model that produced it (`report["model"]` in the benchmark JSON). A
+groundedness number without a model name is not reproducible.
+
+**Cost.** Tokens per turn are always measured. A *currency* figure is reported
+only when `RIPPLE_PRICE_IN` / `RIPPLE_PRICE_OUT` are set from the provider's
+current pricing page — the defaults are zero, because a rupee figure derived
+from a price we guessed would be a fabricated number wearing a decimal point.
+
 **Nothing here is estimated.** Every figure is produced by the commands above.
 Where something has not been measured, it says so.
 

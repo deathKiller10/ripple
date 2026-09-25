@@ -173,8 +173,15 @@ class SynthesisConfig:
     provider: str = field(
         default_factory=lambda: os.environ.get("RIPPLE_PROVIDER", "stub")
     )
+    # Pinned deliberately rather than using a "-latest" alias: a benchmark
+    # whose model can change under it is not reproducible. If this name stops
+    # being served, scripts/check_key.py lists what the account can actually
+    # use and names a replacement -- which is how this default was last
+    # corrected, after gemini-2.0-flash stopped being offered to new accounts.
+    # WHICHEVER MODEL PRODUCED A NUMBER MUST BE NAMED BESIDE IT in the
+    # evaluation report.
     model: str = field(
-        default_factory=lambda: os.environ.get("RIPPLE_MODEL", "gemini-2.0-flash")
+        default_factory=lambda: os.environ.get("RIPPLE_MODEL", "gemini-2.5-flash")
     )
     max_claims: int = field(default_factory=lambda: _i("RIPPLE_MAX_CLAIMS", 6))
     # Grounding verifier: minimum lexical overlap between a claim and the chunk
@@ -188,12 +195,28 @@ class SynthesisConfig:
 
 @dataclass
 class CostTable:
-    """Prices are config, not code, so the reported cost-per-turn survives a
-    price change. Defaults are Gemini 2.0 Flash free-tier-equivalent list
-    prices in INR per 1M tokens as of Sep 2026."""
+    """Prices are config, not code, so a reported cost-per-turn survives a
+    price change.
 
-    prompt_per_1m: float = field(default_factory=lambda: _f("RIPPLE_PRICE_IN", 8.3))
-    completion_per_1m: float = field(default_factory=lambda: _f("RIPPLE_PRICE_OUT", 33.2))
+    THE DEFAULT IS ZERO, ON PURPOSE. We do not know the current list price of
+    whichever model you configured, and a rupee figure derived from a price we
+    guessed is a fabricated number wearing a decimal point -- exactly the kind
+    of thing the evaluation report exists to avoid. Tokens per turn are always
+    measured and always reported; a currency figure appears only once you set
+    real prices:
+
+        RIPPLE_PRICE_IN=<INR per 1M prompt tokens>
+        RIPPLE_PRICE_OUT=<INR per 1M completion tokens>
+
+    taken from the provider's current pricing page for the model you ran.
+    """
+
+    prompt_per_1m: float = field(default_factory=lambda: _f("RIPPLE_PRICE_IN", 0.0))
+    completion_per_1m: float = field(default_factory=lambda: _f("RIPPLE_PRICE_OUT", 0.0))
+
+    @property
+    def configured(self) -> bool:
+        return self.prompt_per_1m > 0 or self.completion_per_1m > 0
 
     def compute(self, prompt_tokens: int, completion_tokens: int) -> float:
         return (
