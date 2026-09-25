@@ -38,6 +38,13 @@ from typing import Optional
 from ..schemas import Cost
 
 
+def _i_env(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except ValueError:
+        return default
+
+
 # ---------------------------------------------------------------------------
 # Interface
 # ---------------------------------------------------------------------------
@@ -164,6 +171,11 @@ class GeminiProvider(Provider):
     ENDPOINT = ("https://generativelanguage.googleapis.com/v1beta/models/"
                 "{model}:generateContent")
 
+    # Floor on maxOutputTokens. A reasoning model can burn hundreds of tokens
+    # before its first visible character, so a small ask returns nothing at all
+    # rather than a short answer. Overridable because it is a cost knob.
+    MIN_OUTPUT_TOKENS = _i_env("RIPPLE_MAX_OUTPUT", 1024)
+
     def __init__(self, model: str = "gemini-2.0-flash", rpm: int = 12,
                  api_key: Optional[str] = None, cost_table=None):
         self.model = model
@@ -172,9 +184,19 @@ class GeminiProvider(Provider):
         self.cost_table = cost_table
         self.fatal_error = ""
         self.calls_made = 0
+        # Failures are counted and surfaced. `calls_made` alone hid a run where
+        # 51 turns produced 3 successful calls, because a counter that only
+        # goes up on success cannot tell you about the ones that did not.
+        self.calls_failed = 0
+        self.last_error = ""
 
     def available(self) -> bool:
         return bool(self.api_key)
+
+    def _fail(self, msg: str) -> LLMResult:
+        self.calls_failed += 1
+        self.last_error = msg
+        return LLMResult("", Cost(llm_calls=0), degraded=True, error=msg)
 
     LIST_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models"
 
@@ -220,12 +242,7 @@ class GeminiProvider(Provider):
         previous, self.model = self.model, name
         self.fatal_error = ""
         try:
-            res = self.complete("Reply with the single word: ok", max_tokens=8)
-            if self.fatal_error:
-                return False, self.fatal_error
-            if res.degraded:
-                return False, res.error or "unknown failure"
-            return True, (res.text or "").strip()[:40]
+            return self._probe()
         finally:
             self.model = previous
 
@@ -237,30 +254,59 @@ class GeminiProvider(Provider):
         """
         if not self.available():
             return False, "no API key set (GEMINI_API_KEY)"
-        res = self.complete("Reply with the single word: ok", max_tokens=8)
+        return self._probe()
+
+    def _probe(self) -> tuple[bool, str]:
+        """Shared by preflight() and try_model(): one call that must return TEXT.
+
+        The bar is deliberately "produced a non-empty answer", not "did not
+        error". An earlier version passed the moment no exception came back,
+        printed `ok (model replied '')`, and let a whole benchmark proceed on a
+        model that never emitted a single character. A preflight that can pass
+        while the thing it is checking is broken is worse than no preflight,
+        because it converts a loud failure into a plausible-looking table.
+        """
+        res = self.complete("Reply with the single word: ok")
         if self.fatal_error:
             return False, self.fatal_error
         if res.degraded:
             return False, res.error or "unknown failure"
-        return True, (res.text or "").strip()[:40]
+        reply = (res.text or "").strip()
+        if not reply:
+            return False, f"{self.model} returned an empty answer"
+        return True, reply[:40]
 
     def complete(self, prompt: str, max_tokens: int = 600,
                  json_mode: bool = False) -> LLMResult:
         import httpx
 
         if not self.available():
-            return LLMResult("", Cost(), degraded=True,
-                             error="GEMINI_API_KEY not set")
-        body = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature": 0.1,
-                "maxOutputTokens": max_tokens,
-                "topP": 0.9,
-            },
+            return self._fail("GEMINI_API_KEY not set")
+        # THINKING IS OFF, AND maxOutputTokens HAS A FLOOR. Both are the same
+        # bug, found the hard way.
+        #
+        # Newer Gemini flash models are reasoning models: they spend output
+        # tokens on internal thought BEFORE emitting any answer text, and those
+        # tokens count against maxOutputTokens. Ask for 8 tokens and you get
+        # back a perfectly successful HTTP 200 whose candidate contains no text
+        # part at all and finishReason MAX_TOKENS. Nothing looks broken -- the
+        # key is fine, the model exists, the call "succeeded" -- and the whole
+        # benchmark quietly synthesises from empty strings.
+        #
+        # thinkingBudget=0 disables it where supported. Models that do not know
+        # the field ignore it; models that refuse it are caught by the 400
+        # handler below, which is why the retry there strips it rather than
+        # giving up. The floor is belt-and-braces for whatever thinks anyway.
+        gen = {
+            "temperature": 0.1,
+            "maxOutputTokens": max(max_tokens, self.MIN_OUTPUT_TOKENS),
+            "topP": 0.9,
+            "thinkingConfig": {"thinkingBudget": 0},
         }
+        body = {"contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": gen}
         if json_mode:
-            body["generationConfig"]["responseMimeType"] = "application/json"
+            gen["responseMimeType"] = "application/json"
 
         url = self.ENDPOINT.format(model=self.model)
         last_err = ""
@@ -292,15 +338,46 @@ class GeminiProvider(Provider):
                                   .get("message", ""))[:500]
                     except Exception:
                         detail = r.text[:500]
+                    # One exception to fail-fast: a 400 caused by our own
+                    # thinkingConfig on a model that does not accept it. Drop
+                    # the field and retry once rather than declaring the model
+                    # dead over a knob we added.
+                    if (r.status_code == 400 and "thinkingConfig" in gen
+                            and "think" in detail.lower()):
+                        gen.pop("thinkingConfig", None)
+                        last_err = "retrying without thinkingConfig"
+                        continue
                     self.fatal_error = f"HTTP {r.status_code}: {detail}"
-                    return LLMResult("", Cost(), degraded=True,
-                                     error=self.fatal_error)
+                    return self._fail(self.fatal_error)
                 r.raise_for_status()
                 data = r.json()
                 text = ""
+                finish = ""
                 for cand in data.get("candidates", []):
+                    finish = cand.get("finishReason", "") or finish
                     for part in cand.get("content", {}).get("parts", []):
                         text += part.get("text", "")
+
+                # AN EMPTY ANSWER IS A FAILURE, and it has to be reported as
+                # one. This returned success before, which is how a run got all
+                # the way to a finished results table built from empty strings:
+                # HTTP 200, no error, no text. A provider that can fail
+                # invisibly makes every number downstream of it unfalsifiable.
+                if not text.strip():
+                    why = {
+                        "MAX_TOKENS": ("model used its whole output budget "
+                                       "without producing text (reasoning "
+                                       "tokens); raise RIPPLE_MAX_OUTPUT or "
+                                       "use a non-thinking model"),
+                        "SAFETY": "response blocked by safety filters",
+                        "RECITATION": "response blocked as recitation",
+                        "PROHIBITED_CONTENT": "response blocked as prohibited",
+                    }.get(finish, f"empty response (finishReason={finish or 'none'})")
+                    block = (data.get("promptFeedback", {})
+                             .get("blockReason", ""))
+                    if block:
+                        why += f"; prompt blocked: {block}"
+                    return self._fail(f"{self.model}: {why}")
                 usage = data.get("usageMetadata", {})
                 pt = int(usage.get("promptTokenCount", 0))
                 ct = int(usage.get("candidatesTokenCount", 0))
@@ -315,7 +392,7 @@ class GeminiProvider(Provider):
             except Exception as e:  # noqa: BLE001
                 last_err = f"{type(e).__name__}: {e}"
                 time.sleep(1.0 * (attempt + 1))
-        return LLMResult("", Cost(llm_calls=0), degraded=True, error=last_err)
+        return self._fail(last_err)
 
 
 # ---------------------------------------------------------------------------
@@ -342,12 +419,15 @@ class OpenAIProvider(Provider):
     def preflight(self) -> tuple[bool, str]:
         if not self.available():
             return False, "no API key set (OPENAI_API_KEY)"
-        res = self.complete("Reply with the single word: ok", max_tokens=8)
+        res = self.complete("Reply with the single word: ok", max_tokens=64)
         if self.fatal_error:
             return False, self.fatal_error
         if res.degraded:
             return False, res.error or "unknown failure"
-        return True, (res.text or "").strip()[:40]
+        reply = (res.text or "").strip()
+        if not reply:
+            return False, f"{self.model} returned an empty answer"
+        return True, reply[:40]
 
     def complete(self, prompt: str, max_tokens: int = 600,
                  json_mode: bool = False) -> LLMResult:

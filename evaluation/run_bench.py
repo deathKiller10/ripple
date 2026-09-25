@@ -89,8 +89,16 @@ def run_system(name, engine, scenarios, sink_dir=None, progress=True, **kw):
         if progress:
             elapsed = time.perf_counter() - t0
             eta = (elapsed / i) * (n - i)
-            calls = getattr(engine.provider, "calls_made", None)
-            extra = f"  {calls} llm calls" if calls else ""
+            ok_calls = getattr(engine.provider, "calls_made", None)
+            bad = getattr(engine.provider, "calls_failed", 0)
+            extra = f"  {ok_calls} llm calls" if ok_calls else ""
+            # Show failures too. Reporting only successes is how a run that was
+            # failing 94% of its calls looked merely slow.
+            if bad:
+                extra += f", {bad} FAILED"
+                err = getattr(engine.provider, "last_error", "")
+                if err:
+                    extra += f" ({err.split(';')[0][:60]})"
             sys.stderr.write(
                 f"\r  {name:<20} {i:>3}/{n}  {elapsed:6.1f}s elapsed"
                 f"  ~{eta:5.1f}s left{extra}      ")
@@ -141,7 +149,6 @@ def main(argv=None):
           f"provider={engine.provider.name}{model_note}  "
           f"embedder={cfg.embedder}  "
           f"reranker={getattr(engine.reranker, 'name', '?')}")
-    report["model"] = cfg.synthesis.model
     wanted = (cfg.synthesis.provider or "stub").lower()
 
     if engine.provider.name != "stub" and hasattr(engine.provider, "preflight"):
@@ -180,6 +187,7 @@ def main(argv=None):
     os.makedirs(args.out, exist_ok=True)
     trace_dir = os.path.join(args.out, f"traces_{args.split}")
     report: dict = {"split": args.split, "provider": engine.provider.name,
+                    "model": cfg.synthesis.model,
                     "embedder": cfg.embedder,
                     "reranker": getattr(engine.reranker, "name", "?"),
                     "config": cfg.to_dict(), "systems": {}, "ablations": {}}
@@ -187,11 +195,34 @@ def main(argv=None):
     rows = []
     for name in args.systems.split(","):
         sink = trace_dir if name == "B3_ripple" else None
+        before_ok = getattr(engine.provider, "calls_made", 0)
+        before_bad = getattr(engine.provider, "calls_failed", 0)
         runs, secs = run_system(name, engine, scenarios, sink_dir=sink)
         cov = measure_trace_coverage(trace_dir) if name == "B3_ripple" else 0.0
         res = evaluate(runs, by_id, corpus_cites, trace_coverage=cov)
         report["systems"][name] = res.to_dict()
         report["systems"][name]["wall_seconds"] = round(secs, 2)
+        good = getattr(engine.provider, "calls_made", 0) - before_ok
+        bad = getattr(engine.provider, "calls_failed", 0) - before_bad
+        report["systems"][name]["llm_calls_ok"] = good
+        report["systems"][name]["llm_calls_failed"] = bad
+
+        # STOP rather than tabulate garbage. If most calls to the model failed,
+        # every groundedness and cost number below is computed over empty
+        # answers, and printing it anyway is how a broken run becomes a slide.
+        if bad and bad > good:
+            print()
+            print("!" * 74)
+            print(f"  ABORTING. {name} made {good} successful and {bad} FAILED")
+            print("  LLM calls. Any table printed from this would be measuring")
+            print("  empty answers, not the system.")
+            print()
+            print(f"     last error: "
+                  f"{getattr(engine.provider, 'last_error', '')[:300]}")
+            print()
+            print("  Diagnose with:  python scripts/check_key.py")
+            print("!" * 74)
+            return 2
         rows.append((name, res))
 
     # ---------------- comparison table ----------------
