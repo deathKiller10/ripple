@@ -209,6 +209,26 @@ class GeminiProvider(Provider):
         except Exception as e:  # noqa: BLE001
             return False, f"{type(e).__name__}: {e}"
 
+    def try_model(self, name: str) -> tuple[bool, str]:
+        """Actually generate with one model. Returns (worked, message).
+
+        Necessary because the models-list endpoint is not a list of models you
+        can use: it happily advertises names that return 404 "no longer
+        available to new users" the moment you generate with them. Listing is
+        advertising; generating is the test.
+        """
+        previous, self.model = self.model, name
+        self.fatal_error = ""
+        try:
+            res = self.complete("Reply with the single word: ok", max_tokens=8)
+            if self.fatal_error:
+                return False, self.fatal_error
+            if res.degraded:
+                return False, res.error or "unknown failure"
+            return True, (res.text or "").strip()[:40]
+        finally:
+            self.model = previous
+
     def preflight(self) -> tuple[bool, str]:
         """One cheap call to prove the key and model work.
 
@@ -269,9 +289,9 @@ class GeminiProvider(Provider):
                     detail = ""
                     try:
                         detail = (r.json().get("error", {})
-                                  .get("message", ""))[:200]
+                                  .get("message", ""))[:500]
                     except Exception:
-                        detail = r.text[:200]
+                        detail = r.text[:500]
                     self.fatal_error = f"HTTP {r.status_code}: {detail}"
                     return LLMResult("", Cost(), degraded=True,
                                      error=self.fatal_error)

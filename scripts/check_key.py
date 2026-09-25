@@ -28,6 +28,66 @@ from ripple.config import Config                       # noqa: E402
 from ripple.synthesis.providers import build_provider   # noqa: E402
 
 
+
+# Names that exist but are not text-generation models for our purposes.
+_SKIP = ("tts", "image", "embedding", "embed", "aqa", "vision", "imagen",
+         "veo", "audio", "live", "native-audio", "dialog", "computer-use",
+         "robotics", "guard")
+
+
+def _rank(name: str) -> tuple:
+    """Order candidates: cheap-and-fast first, newest first, aliases last.
+
+    A benchmark wants a flash-class model -- cheap, quick, and the tier a
+    support assistant would realistically run on. Pinned names sort ahead of
+    "-latest" aliases because an alias that moves under you makes a benchmark
+    unreproducible.
+    """
+    import re
+
+    lowered = name.lower()
+    flash = 0 if "flash" in lowered else 1
+    lite = 0 if "lite" in lowered else 1
+    preview = 1 if ("preview" in lowered or "exp" in lowered) else 0
+    alias = 1 if "latest" in lowered else 0
+    m = re.search(r"(\d+(?:\.\d+)?)", lowered)
+    version = -float(m.group(1)) if m else 0.0
+    # Version outranks "lite": a newer flash model beats an older lite one.
+    # The first ordering had these swapped and preferred gemini-2.5-flash-lite
+    # over gemini-3.8-flash, which is exactly backwards.
+    return (flash, preview, alias, version, lite, name)
+
+
+def find_working_model(provider, models, requested, limit=6, hint=""):
+    """Probe real generation calls until one succeeds.
+
+    Costs one tiny call per candidate, capped. Worth it: the alternative is
+    discovering the model is dead partway through a ten-minute benchmark.
+
+    `hint` is a model name parsed out of the API's own error text. Providers
+    often name the replacement in the message that rejects the old one
+    ("Please update your code to use models/x"), and that is a better signal
+    than any ordering we invent, so it is tried first.
+    """
+    candidates = [m for m in models
+                  if not any(sk in m.lower() for sk in _SKIP)
+                  and m != requested]
+    candidates.sort(key=_rank)
+    if hint and hint != requested:
+        candidates = [hint] + [c for c in candidates if c != hint]
+    tried = []
+    for name in candidates[:limit]:
+        print(f"     trying {name} ...", end="", flush=True)
+        ok, detail = provider.try_model(name)
+        if ok:
+            print(" WORKS")
+            return name, detail, tried
+        short = detail.split(".")[0][:70]
+        print(f" no ({short})")
+        tried.append((name, detail))
+    return None, "", tried
+
+
 def line(char="-"):
     print(char * 70)
 
@@ -125,23 +185,57 @@ def main() -> int:
     line()
     print(f"CHECK 2  Does {cfg.synthesis.model!r} work?")
     line()
-    if models is not None and cfg.synthesis.model not in models:
-        print(f"  {cfg.synthesis.model!r} is NOT in the list above.")
-        pref = ("gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash",
-                "gemini-flash-latest")
-        pick = next((p for p in pref if p in models),
-                    next((m for m in models if "flash" in m),
-                         models[0] if models else None))
-        if pick:
+    print(f"  Making one small generation call with "
+          f"{cfg.synthesis.model!r} ...")
+    ok, detail = provider.preflight()
+
+    if not ok and models:
+        # The requested model did not work. Do NOT trust the models list to
+        # tell us what will -- it advertises names that 404 on generation.
+        # Probe until something actually generates.
+        print()
+        print(f"  {cfg.synthesis.model!r} failed:")
+        print(f"     {detail[:300]}")
+        print()
+        import re as _re
+        m = _re.search(r"models/([A-Za-z0-9.\-]+)", detail.split("no longer")[-1])
+        hint = m.group(1) if m else ""
+        if hint:
+            print(f"  The API suggested {hint!r}; trying that first.")
+        print("  Probing for a model that actually generates:")
+        found, reply, tried = find_working_model(provider, models,
+                                                 cfg.synthesis.model,
+                                                 hint=hint)
+        if found:
             print()
-            print(f"  Use this instead — add to your .env:")
-            print(f"     RIPPLE_MODEL={pick}")
+            line("=")
+            print(f"  RESULT: WORKING MODEL FOUND \u2014 {found}")
+            line("=")
+            print(f"  It replied {reply!r}.")
             print()
-            print("  Then run this script again.")
+            print("  Put this line in your .env (replace any RIPPLE_MODEL "
+                  "line):")
+            print()
+            print(f"     RIPPLE_MODEL={found}")
+            print()
+            print("  PowerShell:")
+            print(f'     Add-Content -Path .env -Value "RIPPLE_MODEL={found}"')
+            print()
+            print("  Then run this script once more to confirm, and start "
+                  "the benchmark.")
+            return 0
+        print()
+        print("  RESULT: no model generated successfully.")
+        print()
+        print("  Tried:")
+        for name, err in tried:
+            print(f"     {name}: {err.split('.')[0][:80]}")
+        print()
+        print("  This usually means the project has no free-tier quota for")
+        print("  generation, even though the key authenticates. Check quota")
+        print("  at https://aistudio.google.com/ and try again.")
         return 1
 
-    print("  Making one small generation call ...")
-    ok, detail = provider.preflight()
     print()
     if ok:
         line("=")
