@@ -33,15 +33,41 @@ No API key. No GPU. No model download at run time — the corpus, the labels, th
 scenarios and the index are all built into the image. This is gate **G1**, and
 it is the gate most submissions lose.
 
-Without Docker:
+Without Docker, two commands:
 
 ```bash
 pip install -r requirements.txt
-python data/corpus/care/build_corpus.py
-python data/labels/build_labels.py
-python data/scenarios/build_scenarios.py
-python -c "from ripple.retrieval.index import build_and_save; build_and_save('data/corpus/care','.index','tfidf-svd')"
-uvicorn ripple.server:app --port 8000
+python scripts/setup.py
+```
+
+`setup.py` builds the corpus, the classifier labels, the benchmark scenarios
+and the search index, runs the test suite, reports whether an LLM key is
+configured, and prints what to run next. Safe to re-run at any time.
+
+Then:
+
+```bash
+uvicorn ripple.server:app --port 8000     # → http://localhost:8000
+```
+
+### Using a real LLM
+
+Everything above works with no API key. To get meaningful grounding and cost
+numbers, create a file called `.env` in the repo root:
+
+```
+RIPPLE_PROVIDER=gemini
+GEMINI_API_KEY=your_key_here
+RIPPLE_RPM=12
+```
+
+`.env` is git-ignored and loaded automatically. **Start with two systems** —
+the full four-system run issues roughly 600 calls because B2 retrieves on
+every chunk by design, and that will exhaust a free tier:
+
+```bash
+python -m evaluation.run_bench --split dev --provider gemini \
+       --systems B1_static_rag,B3_ripple --out results_gemini
 ```
 
 ### The automated replay suite (no browser)

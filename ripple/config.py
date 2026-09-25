@@ -12,6 +12,41 @@ import os
 from dataclasses import dataclass, field, asdict
 
 
+def _load_dotenv() -> None:
+    """Read a local .env into the environment, once, at import.
+
+    Docker Compose reads .env by itself, but `python -m evaluation.run_bench`
+    does not -- so without this, creating a .env file and then wondering why
+    the provider is still `stub` is a guaranteed twenty minutes lost. Values
+    already set in the real environment always win, so an explicit
+    `RIPPLE_PROVIDER=stub python ...` still overrides the file.
+
+    Deliberately not python-dotenv: this is fifteen lines and the guide grades
+    dependency count.
+    """
+    for base in (os.getcwd(),
+                 os.path.dirname(os.path.dirname(os.path.abspath(__file__)))):
+        path = os.path.join(base, ".env")
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    key, _, val = line.partition("=")
+                    key, val = key.strip(), val.strip().strip("'\"")
+                    if key and key not in os.environ:
+                        os.environ[key] = val
+        except OSError:
+            pass
+        return
+
+
+_load_dotenv()
+
+
 def _f(name: str, default: float) -> float:
     return float(os.environ.get(name, default))
 

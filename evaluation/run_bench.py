@@ -119,6 +119,17 @@ def main(argv=None):
     print(f"split={args.split}  scenarios={len(scenarios)}  "
           f"provider={engine.provider.name}  embedder={cfg.embedder}  "
           f"reranker={getattr(engine.reranker, 'name', '?')}")
+    wanted = (cfg.synthesis.provider or "stub").lower()
+    if wanted != "stub" and engine.provider.name == "stub":
+        env_var = "GEMINI_API_KEY" if wanted == "gemini" else "OPENAI_API_KEY"
+        print()
+        print("!" * 74)
+        print(f"  You asked for provider={wanted!r} but no key was found, so this")
+        print(f"  run is using the KEYLESS STUB. Its groundedness and cost")
+        print(f"  figures are meaningless (see docs/evaluation-report.md #0).")
+        print()
+        print(f"  Set {env_var} in a .env file in the repo root, then re-run.")
+        print("!" * 74)
     print()
 
     os.makedirs(args.out, exist_ok=True)
