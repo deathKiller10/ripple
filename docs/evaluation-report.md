@@ -1,0 +1,319 @@
+# Ripple — Benchmarking & Evaluation Report
+
+**Samsung PRISM GenAI Hackathon, 3rd Edition · Theme 04 Streaming Live RAG**
+Repository: https://github.com/deathKiller10/ripple
+
+Deliverable for §8 of the Theme 4 Guide: quantitative comparison against a
+baseline pipeline, **at least three analysed edge-case failures**, and **at
+least two architectural ablations**. Five ablations are reported.
+
+Reproduce everything here with:
+
+```bash
+python -m evaluation.run_bench --split dev --ablations
+python -m evaluation.calibrate
+python tests/test_gates.py
+```
+
+---
+
+## 0. Read this before the numbers
+
+**Provider.** All figures below come from the **`stub`** provider — the keyless
+extractive path that exists so the container runs on a clean machine with no
+API key (gate G1). Under the stub:
+
+- `citation_support = 1.000` is **not an achievement**. The stub answers by
+  copying a sentence out of the chunk it cites, so a claim is grounded by
+  construction. The meaningful G4 number comes from a run with a real model.
+- `llm_calls` and `cost_per_turn` are **zero**, so the cost comparison is made
+  on `retrievals_per_turn`, which is real and provider-independent.
+- Abstention on *near-miss* holes is a stated limitation of this path
+  (§4.3).
+
+**Splits.** `dev` = 40 scenarios, 51 labelled turns. All threshold calibration
+happened here and nowhere else. `heldout` = 34 scenarios, 43 labelled turns,
+**reserved for a single run after feature freeze and not yet executed.** The
+split was declared in `data/scenarios/build_scenarios.py` before any tuning.
+
+**Nothing here is estimated.** Every figure is produced by the commands above.
+Where something has not been measured, it says so.
+
+---
+
+## 1. Systems compared
+
+All four share the same index, corpus, embedder and provider. A comparison that
+moves two variables at once measures nothing.
+
+| | Description |
+|---|---|
+| **B0** LLM only | No retrieval. The grounding floor, and what the parametric model would say — which under the corpus-isolation rule must never reach the user. |
+| **B1** Static RAG | One query at utterance end; full regeneration on every follow-up. What most submissions will be, and a genuinely strong grounding baseline. |
+| **B2** Naive streaming | Retrieve on **every** transcript chunk, regenerate each time. The behaviour the guide names as pitfall 1, implemented deliberately so its cost can be priced rather than asserted. |
+| **B3** Ripple | The full engine. |
+
+## 2. Results — dev split, 40 scenarios
+
+| system | early retr | false trig | multi-intent | recall@k | intent cov | cite supp | fabricated | continuity | TTFT median | retr/turn |
+|---|---|---|---|---|---|---|---|---|---|---|
+| B0 LLM only | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | 1.000 | 0 | 1.000 | 0.000 | 0.00 |
+| B1 static RAG | 0.000 | 1.000 | 0.000 | 0.835 | 0.768 | 1.000 | 0 | 1.000 | +0.010 | 1.00 |
+| B2 naive streaming | 1.000 | **1.000** | 0.000 | 0.835 | 0.768 | 1.000 | 0 | 1.000 | **−2.069** | **4.04** |
+| **B3 Ripple** | **0.884** | **0.000** | **0.889** | **0.960** | **0.772** | 1.000 | **0** | **1.000** | **−1.036** | 2.75 |
+
+### Acceptance gates (Theme 4 Guide §5)
+
+| Gate | Criterion | Target | Measured | |
+|---|---|---|---|---|
+| G1 | Reproducibility | pass/fail | `docker compose up`, no key, no GPU; replay suite completes headless | **PASS** |
+| G2 | Early retrieval | ≥ 80% | **0.884** (38 of 43 eligible turns) | **PASS** |
+| G2′ | False triggers | low | **0.000** (0 of 8 no-retrieval turns) | **PASS** |
+| G3 | Multi-intent identification | ≥ 70% | **0.889** (8 of 9 compound turns) | **PASS** |
+| G4 | Factual grounding | ≥ 85% | 1.000 under stub — *see §0* | **PASS**, caveated |
+| G4 | Fabricated document IDs | 0 | **0 of 159 citations** | **PASS** |
+| G5 | Session refinement | state continuity | **1.000** over 6 refinement turns | **PASS** |
+| G6 | Telemetry | 100% trace coverage | **1.000**, asserted by test | **PASS** |
+
+### The two readings that matter
+
+**B2 shows what naive streaming actually costs.** It achieves a better TTFT
+than Ripple (−2.07 s against −1.04 s) — it answers from the first fragment,
+because it never waits for anything. It pays with a **100% false-trigger rate**
+(it retrieves on every greeting and every "say that again") and **49% more
+retrievals per turn**. With a real provider, where each of those retrievals
+carries a regeneration, that multiplier lands directly on cost per turn.
+
+**Ripple's recall (0.960) is the highest of any system, and that is
+structural.** B1 and B2 issue a single query at each point and keep nothing;
+Ripple accumulates evidence across the whole utterance in a session pool, so by
+the time the utterance ends it holds gold chunks that a single end-of-utterance
+query never saw.
+
+---
+
+## 3. Ablations
+
+Each variant changes **exactly one** config value on the real engine. They are
+not separate baselines, so nothing else moves.
+
+| Variant | TTFT med | early | recall@k | intent cov | retr/turn |
+|---|---|---|---|---|---|
+| **B3 full system** | **−1.036** | 0.884 | **0.960** | **0.772** | 2.75 |
+| A1 controller OFF (retrieve every chunk) | −1.036 | 1.000 | 0.960 | 0.764 | **3.29** |
+| A2 fusion = plain RRF | −1.036 | 0.884 | 0.960 | **0.718** | 2.75 |
+| A3 speculative synthesis OFF | **0.000** | 0.884 | 0.960 | 0.797 | 2.75 |
+| A4 add BM25 back (hybrid) | −1.036 | 0.884 | **0.893** | 0.720 | 2.75 |
+| A5 reranker back ON | −1.036 | 0.884 | 0.960 | 0.726 | 2.75 |
+
+**A1 — the controller.** Disabling it raises early retrieval to a trivial 1.000
+(everything retrieves) and costs **20% more retrievals per turn**. Its real
+value is not visible in this table: compare B2's false-trigger rate of 1.000
+against B3's 0.000. The controller is what stops the system searching the
+corpus when someone says good morning.
+
+**A2 — coverage-budgeted fusion.** Per-intent grounded coverage falls from
+**0.772 to 0.718** under plain RRF. This is sub-intent starvation, measured:
+recall@k is *identical* at 0.960 in both configurations, so every gold chunk
+was retrieved either way — RRF simply allocated the context budget so that some
+sub-questions received none of it. No standard retrieval metric can see this,
+which is why we had to define per-intent grounded coverage to report it.
+
+**A3 — speculative synthesis.** The whole negative-TTFT effect: **−1.036 s with
+it, 0.000 s without.** It costs 2.5 points of intent coverage (0.797 → 0.772),
+because a draft written before the utterance ends is occasionally superseded.
+That is a real trade and we report both sides. 74% of turns achieve a negative
+TTFT.
+
+**A4 — BM25, and why we removed it.** Adding the sparse half *lowers* recall
+from **0.960 to 0.893**. Our default embedder is TF-IDF+SVD over word **and
+character** n-grams, so it already matches exact identifiers; a 16-query probe
+of part numbers and diagnostic codes (`GH82-S24U-DA1`, `DSP-114`, `BAT-207`…)
+scores **16/16 hit@1 with and without BM25**. The "hybrid" was two correlated
+lexical signals competing for the same slots, with the noisier one displacing
+good hits. BM25 is off by default and available behind a switch — it would
+likely earn its place against a purely semantic embedder such as `bge-small`,
+and ablation A4 should be re-run if the embedder changes.
+
+**A5 — the reranker, and why we removed that too.** Our lexical-semantic
+reranker *lowers* intent coverage from **0.772 to 0.726**, changes neither
+recall nor TTFT, and costs about 90 ms per sub-query. It was re-sorting a fused
+ranking that was already better than its own scoring function. Removing a
+component we built is the parsimony rule applied to ourselves. A true
+cross-encoder is a different quality tier and remains available, but it has
+**not** been measured, so no claim is made for it.
+
+---
+
+## 4. Analysed edge-case failures
+
+### 4.1 The dominant failure mode: selection, not retrieval
+
+The single most useful number in this report is the gap between two metrics:
+
+```
+recall@k              0.960     gold chunk reaches the evidence pool
+per-intent coverage   0.772     gold chunk reaches the ANSWER
+```
+
+**Retrieval is not our bottleneck.** In 19% of sub-intents the right passage
+was found and then not surfaced. Concrete instances from the dev run:
+
+| Scenario | Sub-intent | Wanted | Answer cited instead |
+|---|---|---|---|
+| `dev_multi_01` | warranty coverage | `DOC_WAR_01 §3` | `DOC_KB_01 §1`, `DOC_KB_03 §1/§3` |
+| `dev_multi_02` | battery part cost | `DOC_PRT_03 §2` | `DOC_KB_11 §1/§2/§3` |
+| `dev_multi_08` | overheating while charging | `DOC_KB_11 §2/§3` | `DOC_KB_11 §1`, `DOC_KB_13 §1–3` |
+| `dev_single_10` | technical confirmation report | `DOC_SVC_07 §1` | `DOC_SVC_07 §2` |
+
+The pattern is consistent: the **symptom** documents crowd out the **policy**
+documents. A sub-query like "is any of this covered" is lexically closer to the
+KB article describing the fault than to the warranty clause answering the
+question, and the last case shows it at section granularity — right document,
+adjacent section.
+
+Two honest observations. First, this is a *selection* problem, which is where
+the reranker was supposed to help and measurably did not (A5) — our
+lexical-semantic scorer has the same lexical bias as the retriever it was
+re-sorting, so it reinforced the error rather than correcting it. A
+cross-encoder, which scores query-document *relevance* rather than term
+overlap, is the natural fix and is the highest-value next experiment. Second,
+this is the failure mode most likely to improve with a real provider: the model
+sees twelve chunks and chooses which to cite, and it is better at "this clause
+answers the question, that symptom description does not" than any lexical
+score.
+
+### 4.2 Compound questions stated without an interrogative
+
+`dev_multi_09`: *"Bluetooth keeps cutting out on his earbuds and wifi drops at
+home as well."* Two questions. The compoundness gate originally scored it
+single-intent because its coordination test required a request head after the
+marker, and "…and wifi drops at home" states a second question as a **symptom**
+rather than a question. The whole utterance became one intent, retrieval was
+run on the blend, and — worse — the abstention gate then declared it uncovered,
+because no single passage covers both Bluetooth and Wi-Fi.
+
+Two fixes followed, both recorded in the source. A coordinated clause carrying
+its own content words now counts at half weight even without an interrogative;
+and **the abstention gate never judges an undecomposed compound question**,
+because "no single passage covers all of this" is precisely the situation
+decomposition exists to resolve. G3 moved 0.778 → **0.889**, over-fragmentation
+unchanged at 0.039.
+
+The residual failure, `dev_multi_07` — *"He bought it second hand and wants to
+know if the warranty still applies and whether the protection plan came with
+it"* — is a genuine miss: two questions about the same document family
+(`DOC_WAR_09 §1` and `§2`), with low topical variance because they are about
+the same topic. Distinguishing them needs semantics, not segmentation.
+
+### 4.3 Abstention: two heuristics measured and discarded
+
+The corpus contains deliberate holes. Getting abstention right took three
+attempts and the first two failed in instructive ways.
+
+**Attempt 1 — distribution shape.** Hypothesis: a covered query produces a
+sharp peak in its ranking, an uncovered one a flat ranking. Measured, the
+*reverse* held. The screen-protector-reimbursement hole produced the **highest**
+standout score of any query tested (z = 12.8), because the corpus contains a
+section titled "Screen protection accessories" that matches the query's surface
+form almost perfectly while answering nothing. Peakedness measures how
+distinctive the best match is, not whether it answers anything.
+
+**Attempt 2 — corpus vocabulary.** Count the question's content words that
+appear nowhere in the corpus. This separated cleanly at 21 documents and was
+adopted. It then **broke when the corpus grew to 60 documents**: vocabulary
+went from 658 to 1100 words, out-of-vocabulary rates fell across the board, and
+holes began to look covered. A threshold fitted to one corpus size does not
+survive another — disqualifying, given the guide's held-out private benchmark.
+
+**What we do now.** A deliberately conservative retrieval-side pre-filter — does
+any *single* passage address this question — with the real judgement left to
+the model and the grounding verifier. On dev the pre-filter achieves
+**precision 0.50, recall 0.50** on two uncoverable turns (small numbers; stated
+as such). Its design target is precision: a wrong abstention destroys an answer
+we could have given, while a missed one is caught downstream.
+
+**Stated limitation.** The keyless stub cannot abstain on near-miss holes. A
+test (`test_near_miss_holes_are_a_known_stub_limitation`) asserts the limitation
+is exactly where we claim it is, and will fail if that ever changes — so the
+caveat cannot silently become false.
+
+### 4.4 Four bugs that only a larger test set revealed
+
+The corpus and scenarios were tripled mid-project (21 → 60 documents, 16 → 51
+labelled dev turns). Four real bugs surfaced immediately, each found by a number
+disagreeing with the mechanism rather than by a crash.
+
+1. **The controller skipped its own observation on short prefixes.** A minimum
+   word-count guard returned `WAIT` *before* running the shadow retrieval, so
+   the stability series started a chunk late. Every eligible turn that failed to
+   retrieve early was two or three chunks long — the controller was still
+   warming up when the speaker finished. Early retrieval **0.74 → 0.86**.
+2. **The EMA was seeded at zero**, imposing a further warm-up lag of two to
+   three chunks. Seeding with the first real observation removed it.
+3. **Suppressed turns reported zero retrievals** even when one had already
+   fired mid-utterance, hiding a false trigger from our own G2 figure — the
+   exact half of that gate teams are tempted to omit.
+4. **Speculative synthesis bypassed the abstention gate**, so a draft claim
+   could cite a source for a question the corpus does not answer. A gate that
+   guards only the slow path is not a gate.
+
+### 4.5 A harness bug that made our own system look worse
+
+Early runs reported Ripple's recall at roughly half the static baseline's
+(0.420 vs 0.819). The engine was fine: the harness populated `retrieved_cites`
+for B1 but not for B3, so the metric fell back to the citation list — twelve
+retrieved chunks against three cited claims. Recall must be computed over what
+a system *retrieved*, not what it chose to cite.
+
+Worth recording as method: **a result that flatters or damns your system for a
+reason you cannot explain mechanically is a harness bug until proven
+otherwise.** Both directions of that rule fired during this project.
+
+---
+
+## 5. Threshold calibration
+
+θ is derived rather than chosen. `evaluation/calibrate.py` sweeps it against
+`E[cost] = P(false trigger)·c_waste + P(late)·c_late`, with c_waste = 1 and
+c_late = 175 from the ~1000× asymmetry between a wasted 4 ms lookup and 700 ms
+of user-visible silence.
+
+| θ | early retrieval | false trigger | E[cost] |
+|---|---|---|---|
+| **0.40** | **0.88** | 0.00 | **20.35** |
+| 0.48 | 0.84 | 0.00 | 28.49 |
+| 0.56 | 0.72 | 0.00 | 48.84 |
+| 0.62 | 0.60 | 0.00 | 69.19 |
+| 0.68 | 0.53 | 0.00 | 81.39 |
+| 0.80 | 0.40 | 0.00 | 105.81 |
+| 0.92 | 0.14 | 0.00 | 150.58 |
+
+The curve is monotone and the false-trigger column is flat, which is itself the
+finding: **θ trades early retrieval against wasted shadow retrievals, not
+against false triggers.** Those are prevented upstream by the suppression
+classifier. The two halves of gate G2 are governed by different components — not
+obvious until the sweep is run, and a reason to sweep rather than tune.
+
+---
+
+## 6. What has not been measured
+
+Stated explicitly so no reader infers more than we tested.
+
+- **The held-out split has not been run.** Reserved for one execution after
+  feature freeze.
+- **No real-provider run yet.** Groundedness, token cost and cost-per-turn are
+  therefore not meaningfully measured; §0 explains why the stub's 1.000 is an
+  artefact. This is the single highest-value outstanding experiment.
+- **`bge-small` embeddings are unmeasured.** Available behind a switch. Ablation
+  A4 (BM25) would need re-running with it.
+- **Cross-encoder reranking is unmeasured.** Available; no claim made.
+- **Latency figures are wall-clock on one developer machine**, not a controlled
+  benchmark. The replay harness uses a virtual clock taken from transcript
+  timestamps, so TTFT and early-retrieval figures are machine-independent, but
+  the component timings quoted in the architecture brief (~4 ms controller,
+  ~8 ms retrieval, ~90 ms reranker) are indicative only.
+- **Corpus scale.** 151 chunks is enough to measure, but production support
+  knowledge bases are 10⁴–10⁵ sections. The flat-index decision would be
+  revisited there.

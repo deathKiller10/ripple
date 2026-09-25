@@ -66,41 +66,64 @@ python tests/test_gates.py                        # 9 property tests
 
 ---
 
-## Current status (dev split, stub provider)
+## Current status — dev split, 40 scenarios, keyless provider
 
 ```
-system                early retr false trig  multi-int   recall@k  cite supp fabricated continuity   TTFT med  retr/turn
-B0_llm_only                0.000      0.000      0.000      0.000      1.000          0      1.000      0.000      0.000
-B1_static_rag              0.000      1.000      0.000      0.819      1.000          0      1.000      0.003      1.000
-B2_naive_streaming         1.000      1.000      0.000      0.819      1.000          0      1.000     -3.103      4.625
-B3_ripple                  0.846      0.000      1.000      0.948      1.000          0      1.000     -0.518      2.688
+system                early retr false trig  multi-int   recall@k intent cov  fabricated continuity   TTFT med  retr/turn
+B0_llm_only                0.000      0.000      0.000      0.000      0.000           0      1.000      0.000      0.000
+B1_static_rag              0.000      1.000      0.000      0.835      0.768           0      1.000     +0.010      1.000
+B2_naive_streaming         1.000      1.000      0.000      0.835      0.768           0      1.000     -2.069      4.039
+B3_ripple                  0.884      0.000      0.889      0.960      0.772           0      1.000     -1.036      2.745
 
 ACCEPTANCE GATES (Theme 4 Guide §5)
-  [PASS] G2 early retrieval                   0.846 >= 0.80
-  [PASS] G3 multi-intent identification       1.000 >= 0.70
-  [PASS] G4 citation support                  1.000 >= 0.85
-  [PASS] G4 fabricated citations                  0 == 0
-  [PASS] G5 state continuity                  1.000 >= 1.00
-  [PASS] G6 telemetry trace coverage          1.000 >= 1.00
+  [PASS] G2 early retrieval                   0.884 >= 0.80     38 of 43 eligible turns
+  [PASS] G2 false triggers                    0.000             0 of 8 no-retrieval turns
+  [PASS] G3 multi-intent identification       0.889 >= 0.70     8 of 9 compound turns
+  [PASS] G4 citation support                  1.000 >= 0.85     see caveat below
+  [PASS] G4 fabricated citations                  0 == 0        of 159 citations
+  [PASS] G5 state continuity                  1.000 >= 1.00     over 6 refinement turns
+  [PASS] G6 telemetry trace coverage          1.000 >= 1.00     asserted by test
 ```
 
-**Read these numbers with the caveats they deserve.**
+**Read these with the caveats they deserve** — the full discussion is in
+[`docs/evaluation-report.md`](docs/evaluation-report.md).
 
-- `citation_support = 1.000` is *not* an achievement under the stub provider.
-  The stub answers by copying sentences out of the chunk it cites, so a claim
-  is grounded by construction. The stub exists to satisfy G1 on a keyless
-  machine, not to flatter G4. **Groundedness worth reporting comes from a run
-  with a real LLM provider**, and the evaluation report must name the provider.
-- `llm_calls` and `cost_per_turn` are zero for the same reason. Until a
-  provider run happens, `retrievals_per_turn` is the honest cost proxy — and
-  there the comparison is real: naive streaming spends 4.63 retrievals per turn
-  to Ripple's 2.69, while triggering on 100% of turns that needed no retrieval
-  at all.
-- The **held-out split has not been run.** It is reserved for a single run
-  after feature freeze. Thresholds were calibrated on `dev` only.
-- `per_intent_coverage` is currently *lower* for Ripple than for static RAG
-  (0.569 vs 0.736), because Ripple abstains where the baseline answers anyway.
-  Whether that trade is worth it is a real open question, not a settled one.
+- `citation_support = 1.000` is **not an achievement** under the keyless stub
+  provider, which answers by copying a sentence out of the chunk it cites. The
+  stub exists to satisfy G1 on a machine with no API key, not to flatter G4.
+  **The meaningful grounding number comes from a real-provider run**, and the
+  report must name the provider.
+- `llm_calls` and `cost_per_turn` are zero for the same reason, so cost is
+  compared on `retrievals_per_turn` — which is real: naive streaming spends
+  **49% more retrievals per turn** and triggers on **100%** of turns that
+  needed no retrieval at all.
+- **The held-out split has not been run.** Reserved for one execution after
+  feature freeze. All calibration happened on `dev`.
+
+### Five ablations, each changing exactly one variable
+
+| Variant | TTFT med | recall@k | intent cov | retr/turn |
+|---|---|---|---|---|
+| **B3 full system** | **−1.036** | **0.960** | **0.772** | 2.75 |
+| A1 controller OFF | −1.036 | 0.960 | 0.764 | **3.29** |
+| A2 fusion = plain RRF | −1.036 | 0.960 | **0.718** | 2.75 |
+| A3 speculation OFF | **0.000** | 0.960 | 0.797 | 2.75 |
+| A4 add BM25 back | −1.036 | **0.893** | 0.720 | 2.75 |
+| A5 reranker back ON | −1.036 | 0.960 | 0.726 | 2.75 |
+
+**Two components were removed on this evidence.** BM25 *lowered* recall
+(0.960 → 0.893) and won nothing on a 16-query part-number probe — our embedder
+reads character n-grams, so the "hybrid" was two correlated lexical signals
+competing. The lexical-semantic reranker *lowered* intent coverage
+(0.772 → 0.726) for 90 ms per sub-query, because it re-sorted a ranking already
+better than its own scoring. Both stay behind switches with a note on when to
+re-measure. Deleting your own work on evidence is the parsimony rule applied to
+yourself, and the guide grades exactly that.
+
+A2 is the clearest positive result: recall@k is **identical** at 0.960 either
+way, so every gold chunk was retrieved — plain RRF simply allocated the context
+budget so that some sub-questions received none of it. That is sub-intent
+starvation, and no standard retrieval metric can see it.
 
 ---
 
@@ -220,8 +243,8 @@ is finished than any measure of the sentence itself.
 | **1. Retrieval controller** (M1) | shadow retrieval, stability/novelty/jump → WAIT · RETRIEVE · RETRIEVE_MORE · SUPPRESS | **0 tokens**, ~4 ms |
 | **2. Compoundness gate** | coordination + question foci + topical variance; single-intent utterances skip stage 3 entirely | **0 tokens** |
 | **3. Sub-query extractor** | one structured call, only when compound, **concurrent** with the first retrieval so its latency never lands in TTFT | 1 call / compound turn |
-| **4. Parallel hybrid retrieval** | FAISS flat IP (exact) + BM25, RRF per sub-query | 0 tokens, ~8 ms |
-| **5. Coverage-budgeted fusion** (M3) | rerank ≤30 candidates, per-intent floor, marginal-gain fill, MMR | 0 tokens |
+| **4. Parallel retrieval** | FAISS flat IP, exact. Fanned out across sub-queries. BM25 removed on the evidence of ablation A4 | 0 tokens, ~8 ms |
+| **5. Coverage-budgeted fusion** (M3) | per-intent floor, marginal-gain fill, MMR de-dup. Reranker removed on the evidence of ablation A5 | 0 tokens |
 | **6. Claim synthesiser** (M2) | claims as structured objects bound to evidence IDs and assumptions | 1 call / version |
 | **7. Abstention + grounding verifier** | corpus-vocabulary coverage test before synthesis; citation existence and support after | **0 tokens** |
 | **8. Telemetry bus** | every stage emits; coverage asserted by test | 0 tokens |
@@ -329,6 +352,10 @@ otherwise.
 ---
 
 ## Working on this
+
+[`docs/architecture-brief.md`](docs/architecture-brief.md) is the design
+rationale; [`docs/evaluation-report.md`](docs/evaluation-report.md) has the
+measurements, five ablations and the analysed failures.
 
 `AGENTS.md` holds the project rules — the hard constraints from Samsung, the
 invariants that must not break, who owns which folders, and the evaluation
