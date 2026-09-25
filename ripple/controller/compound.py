@@ -50,9 +50,17 @@ _COORD = re.compile(
 _REQUEST_HEAD = re.compile(
     r"\b(?:what|when|where|which|who|why|how|can|could|will|would|should|is|"
     r"are|does|do|did|tell me|i need|i want|i'd like|let me know|check|find|"
-    r"look up|explain|give me|show me|how long|how much)\b",
+    r"look up|explain|give me|show me|how long|how much|whether|if)\b",
     re.I,
 )
+
+# A coordinated clause often has no request head at all -- "...and wifi drops
+# at home as well" is a second question stated as a symptom. Measured on dev,
+# requiring a request head after every coordination marker missed two of nine
+# compound turns outright. So a coordinated clause of reasonable length with
+# its own subject matter also counts, at a lower weight than an explicit
+# request head.
+_SUBSTANTIVE = re.compile(r"\b\w{4,}\b")
 
 _CLAUSE_SPLIT = re.compile(r"[;,.?]|\band\b|\balso\b|\bplus\b", re.I)
 
@@ -61,7 +69,7 @@ _CLAUSE_SPLIT = re.compile(r"[;,.?]|\band\b|\balso\b|\bplus\b", re.I)
 class CompoundnessResult:
     is_compound: bool
     score: float
-    coordination: int
+    coordination: float
     foci: int
     topical_variance: float
     rough_clauses: list[str]
@@ -108,11 +116,17 @@ def _topical_variance(text: str, encode) -> float:
 def assess_compoundness(text: str, encode=None, threshold: float = 0.50
                         ) -> CompoundnessResult:
     t = text.strip()
-    coords = 0
+    coords = 0.0
     for m in _COORD.finditer(t):
-        tail = t[m.end():m.end() + 40]
+        tail = t[m.end():m.end() + 48]
         if _REQUEST_HEAD.search(tail):
-            coords += 1
+            coords += 1.0
+        elif len(_SUBSTANTIVE.findall(tail)) >= 3:
+            # A coordinated clause carrying its own content words, stated
+            # without an interrogative. Half weight: it is weaker evidence
+            # than an explicit second question, so on its own it does not
+            # clear the bar, but combined with topical variance it does.
+            coords += 0.5
 
     clauses = [c.strip() for c in _CLAUSE_SPLIT.split(t) if len(c.strip().split()) >= 3]
     foci = sum(1 for c in clauses if _REQUEST_HEAD.search(c))
@@ -122,7 +136,7 @@ def assess_compoundness(text: str, encode=None, threshold: float = 0.50
     # Weighted vote. Any one strong signal is enough; the weights are set so
     # that two explicit coordinated requests alone clear the bar, and topical
     # variance alone can clear it for marker-free compound speech.
-    score = min(1.0, 0.34 * min(coords, 3) + 0.22 * max(0, min(foci, 4) - 1)
+    score = min(1.0, 0.34 * min(coords, 3.0) + 0.22 * max(0, min(foci, 4) - 1)
                 + 1.05 * tv)
     return CompoundnessResult(
         is_compound=score >= threshold,

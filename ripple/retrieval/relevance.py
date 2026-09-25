@@ -103,13 +103,24 @@ def stem(word: str) -> str:
 
 
 def topical_terms(text: str) -> set[str]:
-    """Content words with light verbs and generic nouns removed."""
+    """Content words with light verbs and generic nouns removed.
+
+    Hyphenated tokens contribute BOTH the whole form and its parts. Without
+    this, a question about "the walk in turnaround" never matched a passage
+    about "walk-in repairs", and the abstention gate declared a well-covered
+    question uncoverable. Writers hyphenate inconsistently and speakers do not
+    hyphenate at all, so the two forms have to be the same concept.
+    """
     out = set()
     for w in content_words(text):
-        s = stem(w)
-        if s in _LIGHT or w in _LIGHT:
-            continue
-        out.add(s)
+        forms = [w] + (w.split("-") if "-" in w else [])
+        for f in forms:
+            if len(f) < 3:
+                continue
+            st = stem(f)
+            if st in _LIGHT or f in _LIGHT:
+                continue
+            out.add(st)
     return out
 
 
@@ -143,11 +154,44 @@ class RelevanceVerdict:
         }
 
 
+def assess_question(query: str, top_chunks, split_fn=None,
+                    **kw) -> RelevanceVerdict:
+    """Assess a question, splitting it first if it is compound.
+
+    The single-passage measure is only meaningful for a SINGLE question. Asked
+    "bluetooth keeps cutting out and wifi drops at home", no one passage covers
+    both -- the corpus answers each in its own article -- and the gate declared
+    a fully-covered compound question uncoverable. That is the precise
+    situation decomposition exists to resolve, so the gate must see the parts,
+    never the whole.
+
+    Returns the most favourable verdict across the parts: a compound question
+    is abstained on only when NO part of it is covered.
+    """
+    if split_fn is None:
+        return assess(query, top_chunks, **kw)
+    try:
+        parts = split_fn(query)
+    except Exception:
+        parts = [query]
+    if len(parts) <= 1:
+        return assess(query, top_chunks, **kw)
+    best = None
+    for part in parts:
+        v = assess(part, top_chunks, **kw)
+        if v.sufficient:
+            return v
+        if best is None or v.max_passage_coverage > best.max_passage_coverage:
+            best = v
+    return best or assess(query, top_chunks, **kw)
+
+
 def assess(query: str, top_chunks, vocabulary: set[str] | None = None,
            min_passage_coverage: float = 0.34, top_n: int = 10,
            **_legacy) -> RelevanceVerdict:
-    """Conservative pre-filter. `vocabulary` is accepted and ignored; it is
-    retained so callers written against attempt 2 keep working."""
+    """Conservative pre-filter for ONE question. Use assess_question() when the
+    text may be compound. `vocabulary` is accepted and ignored; it is retained
+    so callers written against attempt 2 keep working."""
     qw = topical_terms(query)
     if not qw:
         qw = {stem(w) for w in content_words(query)}

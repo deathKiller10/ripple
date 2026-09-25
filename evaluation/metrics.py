@@ -83,7 +83,7 @@ class GateResults:
     llm_calls_per_turn: float = 0.0
     tokens_per_turn: float = 0.0
     cost_per_turn: float = 0.0
-    delta_efficiency: float = 0.0
+    claim_survival: float = 0.0
 
     def to_dict(self) -> dict:
         return {k: (round(v, 4) if isinstance(v, float) else v)
@@ -183,11 +183,22 @@ def evaluate(runs: list, scenarios: dict, corpus_cites: set[str],
                     continuities.append(
                         (preserved - drifted) / max(1, preserved))
                     g.continuity_turns += 1
-                # delta efficiency: retrievals used vs a full restart, which
-                # would re-query every active intent
-                prior = run.turns[idx - 1] if idx else None
-                full = max(1, len(prior.sub_queries) if prior else 1)
-                delta_ratios.append(min(1.0, turn.retrievals / full))
+                # DELTA EFFICIENCY, redefined.
+                #
+                # The first version was retrievals-used over retrievals-a-
+                # restart-would-use, capped at 1.0. It was unreadable (lower
+                # was better, and it saturated at 1.0 whenever the prior turn
+                # had a single sub-query) and it measured the wrong thing: the
+                # guide asks for refinement "without clearing session state",
+                # which is about what SURVIVES, not about search count.
+                #
+                # So: of the claims standing before the constraint arrived,
+                # what fraction survived it? Higher is better, and it is
+                # directly the property the gate describes.
+                kept = cs.get("preserved", 0)
+                lost = cs.get("superseded", 0)
+                if kept + lost:
+                    delta_ratios.append(kept / (kept + lost))
 
             # -- TTFT ---------------------------------------------------
             if turn.ttft_rel_end is not None:
@@ -203,8 +214,8 @@ def evaluate(runs: list, scenarios: dict, corpus_cites: set[str],
     g.recall_at_k = statistics.fmean(recalls) if recalls else 0.0
     g.per_intent_coverage = statistics.fmean(coverages) if coverages else 0.0
     g.state_continuity = statistics.fmean(continuities) if continuities else 1.0
-    g.delta_efficiency = (statistics.fmean(delta_ratios)
-                          if delta_ratios else 0.0)
+    g.claim_survival = (statistics.fmean(delta_ratios)
+                        if delta_ratios else 0.0)
     g.abstention_precision = abst_tp / max(1, abst_tp + abst_fp)
     g.abstention_recall = abst_tp / max(1, abst_tp + abst_fn)
     g.trace_coverage = trace_coverage

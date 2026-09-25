@@ -36,7 +36,7 @@ from .retrieval import fusion as fusion_mod
 from .retrieval.index import Hit, HybridIndex
 from .retrieval.rerank import apply as apply_rerank
 from .retrieval.rerank import build_reranker
-from .retrieval.relevance import assess as assess_relevance
+from .retrieval.relevance import assess_question as assess_relevance
 from .retrieval.relevance import build_vocabulary
 from .schemas import (Cost, Decision, EventType, GuideRetrievalEvent,
                       OutputRecord, Trigger, new_id)
@@ -255,7 +255,7 @@ class RippleSession:
         if not items:
             return False
         rel = assess_relevance(question, [i.chunk for i in items],
-                               self.vocabulary)
+                               split_fn=self._split_for_gate)
         self.bus.emit(EventType.GROUNDING_CHECKED,
                       detail={"stage": "pre_speculation_relevance",
                               **rel.to_dict()})
@@ -675,7 +675,7 @@ class RippleSession:
             # retrieval/relevance.py for why this is a vocabulary test rather
             # than a score threshold.
             rel = assess_relevance(intent.text, [i.chunk for i in items],
-                                   self.vocabulary)
+                                   split_fn=self._split_for_gate)
             self.bus.emit(EventType.GROUNDING_CHECKED, intent_id=intent.id,
                           detail={"stage": "pre_synthesis_relevance",
                                   **rel.to_dict()})
@@ -789,6 +789,15 @@ class RippleSession:
         if top <= 0:
             return top, 0.0
         return top, (top - second) / (abs(top) + 1e-6)
+
+    def _split_for_gate(self, text: str) -> list[str]:
+        """Zero-token split used only by the abstention gate."""
+        from .controller.compound import assess_compoundness, best_split
+
+        enc = lambda ts: self.index.embedder.encode(ts)   # noqa: E731
+        if not assess_compoundness(text, encode=enc).is_compound:
+            return [text]
+        return best_split(text, enc)
 
     def _search(self, query: str, k: int | None = None) -> list[Hit]:
         """Single entry point for retrieval, so ablation switches apply
