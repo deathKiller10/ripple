@@ -281,10 +281,14 @@ class RippleSession:
             if not self._relevance_ok(intent.focus(), items):
                 continue
             res = self.synthesizer.synthesize(intent.focus(), items)
-            if not res.claims:
-                continue
+            # A call that produced no usable claim was still PAID FOR. Recording
+            # cost only after the claims check made every discarded draft free
+            # in our own accounts -- invisible with the zero-cost stub, and an
+            # understated cost-per-turn the moment a real model is used.
             self.turn_cost = self.turn_cost + res.cost
             self.bus.add_cost(res.cost)
+            if not res.claims:
+                continue
             sc = res.claims[0]
             claim = self.graph.add_claim(
                 sc.text, intent.id, sc.evidence_ids, sc.citations,
@@ -323,10 +327,11 @@ class RippleSession:
         if not self._relevance_ok(intent.text, items):
             return
         res = self.synthesizer.synthesize(intent.text, items)
-        if not res.claims:
-            return
+        # Cost first: a discarded draft was still paid for (see above).
         self.turn_cost = self.turn_cost + res.cost
         self.bus.add_cost(res.cost)
+        if not res.claims:
+            return
         sc = res.claims[0]
         claim = self.graph.add_claim(
             sc.text, intent.id, sc.evidence_ids, sc.citations,

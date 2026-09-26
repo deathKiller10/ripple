@@ -52,6 +52,7 @@ def parse_429(r) -> tuple[float, str, str]:
     delay = 0.0
     quota = ""
     msg = ""
+    limit = ""
     try:
         ra = r.headers.get("Retry-After", "")
         if ra:
@@ -77,8 +78,20 @@ def parse_429(r) -> tuple[float, str, str]:
                         quota = "minute"
                     if v.get("quotaId"):
                         msg = str(v["quotaId"])[:120]
+                    if v.get("quotaValue") and not limit:
+                        limit = str(v["quotaValue"])
+        # The human-readable message usually carries the number too
+        # ("... limit: 20, model: ..."). The quota NAME alone told the user
+        # they had run out but never how much there was to begin with, which
+        # is the one number needed to size a run that fits.
+        if not limit:
+            m = re.search(r"limit:\s*(\d+)", str(err.get("message", "")))
+            if m:
+                limit = m.group(1)
     except Exception:
         pass
+    if limit and msg:
+        msg = f"{msg} (limit: {limit} requests)"
     if not quota:
         low = msg.lower().replace("_", "").replace(" ", "")
         if "perday" in low:
