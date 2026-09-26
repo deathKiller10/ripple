@@ -15,7 +15,7 @@ nine, and the form asks for the prompts, which nobody remembers a week later.
 - Team name: `________` (register as `CollegeName_TeamName`)
 - Project name: **Ripple**
 - Institution: VIT Vellore
-- Submission date: 25 Sep 2026
+- Submission date: by 30 Sep 2026 (deadline)
 - Members: Priyanshu Kundu · Souptik Hazra · Anushka Paul · Arpita Bhaumik
 - Repository: https://github.com/deathKiller10/ripple
 - Did your team use AI in developing this project? **Yes**
@@ -46,12 +46,14 @@ actually cares about.
 | 2 | M1 retrieval-space stability controller | Both | Claude (Opus 5) | Design a controller that decides when to retrieve on a partial utterance without any LLM call | RBO-based drift/stability/novelty policy with four decisions | *(record what you change)* |
 | 3 | M2 claim graph & delta refinement | Both | Claude (Opus 5) | Represent the answer so a late constraint patches only affected claims and citations cannot drift | Intent/Evidence/Claim/AnswerVersion graph with a four-step refinement | |
 | 4 | M3 coverage-budgeted fusion | Both | Claude (Opus 5) | Fix sub-intent starvation that RRF hides | Per-intent floor + marginal-gain fill + MMR | |
-| 5 | Care Knowledge Pack corpus | AI-generated | Claude (Opus 5) | Author a synthetic support corpus engineered for multi-intent, late-constraint override, contradiction, distractors and one deliberate coverage hole | 21 documents / 60 sections with `Doc_ID §Section` markers | Region scoping added after the over-invalidation bug |
-| 6 | Benchmark scenarios & gold labels | Both | Claude (Opus 5) | Write dev/held-out scenarios with a G2 eligibility taxonomy | 24 scenarios, 32 labelled turns | Fragmentation at replay time added after the 8% early-retrieval bug |
+| 5 | Care Knowledge Pack corpus | AI-generated | Claude (Opus 5) | Author a synthetic support corpus engineered for multi-intent, late-constraint override, contradiction, distractors and one deliberate coverage hole | 60 documents / 151 chunks with `Doc_ID §Section` markers (grown from 21 / 60) | Region scoping added after the over-invalidation bug; build-time check that every gold citation exists |
+| 6 | Benchmark scenarios & gold labels | Both | Claude (Opus 5) | Write dev/held-out scenarios with a G2 eligibility taxonomy | 40 dev + 34 held-out scenarios (51 + 43 labelled turns; grown from 24) | Fragmentation at replay time added after the 8% early-retrieval bug |
 | 7 | Abstention gate | Both | Claude (Opus 5) | Detect questions the corpus cannot answer | z-score approach proposed, **measured, and rejected**; replaced with a corpus-vocabulary test | The failed hypothesis is documented rather than hidden |
 | 8 | Evaluation harness & baselines | Both | Claude (Opus 5) | Implement B0–B2 baselines and all six gate metrics | Four-system harness with calibration sweeps | Recall measurement bug found and fixed |
-| 9 | Dashboard | Both | Claude (Opus 5) | Three-column live view: transcript, controller timeline, answer with version diff | Zero-build HTML dashboard over the WebSocket | |
+| 9 | Dashboard | AI-generated | Claude (Opus 5) | Three-column live view: transcript, controller timeline, answer with version diff | Zero-build HTML dashboard over the WebSocket | Reviewed and run by the team; no material manual changes recorded in the commit history |
 | 10 | Docker / reproducible setup | Both | Claude (Opus 5) | One command, clean machine, no key, no GPU | Multi-stage Dockerfile with index baked in at build time | |
+| 11 | Real-model provider & key tooling | Both | Claude Code (Opus 5), Claude in Cowork | Add an optional Gemini provider and a key checker | Gemini provider, `scripts/check_key.py` | Rewritten after failures on the team's machine: empty answers from a reasoning model, a PowerShell byte-order mark in `.env`, retired model names, per-minute vs per-day quotas, a leaked key in an error message (key revoked; key now header-only and redacted) |
+| 12 | Real-model evaluation (26 Sep 2026) | Both | Claude in Cowork | Size a run to the free-tier quota, run it, report it | Full dev run on `gemini-3.5-flash-lite`; `evaluation/claim_support.py` | Run exposed three measurement bugs (uncounted cost of discarded drafts; TTFT excluding model time; TTFT including rate-limit queueing), all fixed before the reported run; `citation_support` found to be 1.000 by construction and replaced as the groundedness figure |
 
 ---
 

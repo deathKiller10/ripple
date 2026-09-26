@@ -14,14 +14,21 @@ credibility.
 Because the system is grounding a conversation it is not part of. The customer
 addresses the agent, not us — there is no submit action, no turn boundary and
 nobody to ask for clarification. Retrieval starts at 0.8 s into an utterance
-that ends at 2.1 s, and the answer's first token lands at **−1.04 s relative to
-end of utterance**. A turn-based system cannot produce a negative number there,
-because it has not started.
+that ends at 2.1 s. With a real model (`gemini-3.5-flash-lite`), when a
+customer asks two things Ripple answers the first while they are still asking
+the second: median first claim **3.17 s before the utterance ends** on
+multi-intent turns, 7 of 8 negative. A turn-based system cannot produce a
+negative number there, because it has not started. (On single questions a
+~2 s model reply eats the head start; we report that too.)
 
 **2. Why can't static RAG solve this?**
-It is in the table. B1 static RAG: TTFT +0.010 s, no decomposition, and every
-follow-up regenerates the whole answer, so citations move each time. Ripple:
-TTFT −1.04 s, multi-intent 0.889, and zero citation drift on preserved claims.
+It is in the table (real model, `gemini-3.5-flash-lite`, dev split). B1 static
+RAG: no early retrieval, no decomposition, recall 0.835, and every follow-up
+regenerates the whole answer, so citations move each time. Ripple: early
+retrieval 0.884 with zero false triggers, multi-intent 0.889, recall 0.942,
+158 of 158 claims supported by their cited passage, and zero citation drift on
+preserved claims — for 1.44× the tokens. Static RAG does keep slightly higher
+per-intent coverage (0.854 vs 0.833) and a tighter latency tail; we say so.
 
 **3. Why retrieve before the utterance ends at all — why not wait 400 ms?**
 Because there is nothing to wait *for*. Endpoint detection assumes the speaker
@@ -212,5 +219,11 @@ confident wrong answer. That is the designed failure direction.
   where it sits in the ordering on the What's Next slide. Arguing with a
   correct criticism costs more than the flaw does.
 - **They push on the stub provider:** do not defend the 1.000. Volunteer that
-  it is an artefact, explain why the keyless path exists (gate G1 on their
-  machine), and give the real number if the model run has been done by then.
+  citation validity is 1.000 by construction under any model, explain why the
+  keyless path exists (gate G1 on their machine), and give the real number:
+  with `gemini-3.5-flash-lite` on the full dev split, 158 of 158 model-written
+  claims passed the grounding verifier (automated check, not human review).
+- **They push on latency:** the stub's −1.04 s assumes an instant model. With
+  a real model the median is +1.80 s (static RAG +2.07 s); it goes negative on
+  multi-intent turns (−3.17 s). The p90 tail is worse than static RAG's
+  (10.1 s vs 2.5 s) because Ripple makes 2.5× the calls on a free-tier API.

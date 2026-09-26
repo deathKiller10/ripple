@@ -303,7 +303,7 @@ we have never indexed.
 | Exact FAISS flat index, not HNSW/IVF | A few hundred sections; approximation adds tuning surface and recall risk for no gain, and the controller queries the index on every chunk | none |
 | No BM25 (removed) | Our embedder already reads character n-grams, so the "hybrid" was two correlated lexical signals competing | recall **improved** 0.893 → 0.960 |
 | No reranker (removed) | Re-sorted a fused ranking better than its own scoring function | coverage **improved** 0.689 → 0.772 |
-| Speculative synthesis ON | Produces negative TTFT: the answer starts before the sentence ends | coverage 0.797 → 0.772, a **2.5 point cost** for **1.04 s** of TTFT |
+| Speculative synthesis ON | Produces negative TTFT: the answer starts before the sentence ends | coverage 0.797 → 0.772, a **2.5 point cost** for **1.04 s** of TTFT under the stub. With `gemini-3.5-flash-lite` (26 Sep 2026) the model's ~2 s reply time eats that head start except on multi-intent turns (median −3.17 s, 7 of 8 negative); overall median +1.80 s vs static RAG +2.07 s |
 | Controller ON | Cuts retrievals 3.29 → 2.71 per turn and false triggers 1.00 → 0.00 | coverage 0.764 → 0.772 direction is favourable; the honest cost is complexity |
 | TF-IDF+SVD embedder as default | No torch, no download, so the container starts on a clean machine — gate G1 | quality below a true semantic embedder; `bge-small` available behind a switch |
 
@@ -328,8 +328,9 @@ section about screen protectors that says nothing about reimbursement. That
 judgement is semantic entailment. Two lexical heuristics were built, measured,
 and found not to generalise (recorded in `ripple/retrieval/relevance.py`), so
 abstention properly belongs to the model and the verifier, with the retrieval
-gate as a cheap conservative first pass. Abstention figures worth reporting
-come from a run with a real provider.
+gate as a cheap conservative first pass. With a real model
+(`gemini-3.5-flash-lite`, dev split, 26 Sep 2026) Ripple's abstention precision
+is 0.50 at recall 1.00, against 0.22 at recall 1.00 for static RAG.
 
 ---
 

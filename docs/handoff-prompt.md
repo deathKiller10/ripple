@@ -1,3 +1,8 @@
+> **Superseded (26 Sep 2026).** This is the hand-off written on 26 Sep
+> before the real-model run. Groundedness and cost are no longer
+> placeholders: see §2A of `docs/evaluation-report.md` and
+> `results_gemini/run2_2026-09-26/`. Kept unchanged below as a record.
+
 # Continue the Ripple project (Samsung PRISM GenAI Hackathon)
 
 Paste everything below the line into a new Claude conversation, with the folder

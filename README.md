@@ -99,7 +99,7 @@ our output with no adaptation. Ripple-specific extras are namespaced under
 ```bash
 python -m evaluation.run_bench --split dev        # four systems, all six gates
 python -m evaluation.calibrate                    # threshold sweeps (dev only)
-python tests/test_gates.py                        # 9 property tests
+python tests/test_gates.py                        # 11 property tests
 ```
 
 ---
@@ -126,11 +126,12 @@ ACCEPTANCE GATES (Theme 4 Guide §5)
 **Read these with the caveats they deserve** — the full discussion is in
 [`docs/evaluation-report.md`](docs/evaluation-report.md).
 
-- `citation_support = 1.000` is **not an achievement** under the keyless stub
-  provider, which answers by copying a sentence out of the chunk it cites. The
-  stub exists to satisfy G1 on a machine with no API key, not to flatter G4.
-  **The meaningful grounding number comes from a real-provider run**, and the
-  report must name the provider.
+- `citation_support = 1.000` is **not a groundedness measure under any
+  provider**: it counts citations that point at real documents, and Ripple
+  derives citations from evidence IDs, so a fabricated one cannot exist. The
+  groundedness figure a model can move is **claim support**, below.
+- **Stub TTFT assumes an instant model.** −1.036 s is how early Ripple
+  *starts* an answer; with a real model the reply time is added (below).
 - `llm_calls` and `cost_per_turn` are zero for the same reason, so cost is
   compared on `retrievals_per_turn` — which is real: naive streaming spends
   **49% more retrievals per turn** and triggers on **100%** of turns that
@@ -138,7 +139,35 @@ ACCEPTANCE GATES (Theme 4 Guide §5)
 - **The held-out split has not been run.** Reserved for one execution after
   feature freeze. All calibration happened on `dev`.
 
-### Five ablations, each changing exactly one variable
+## Real-model run — `gemini-3.5-flash-lite`, 26 Sep 2026
+
+Dev split, all 40 scenarios, B1 and B3, zero failed calls. Full discussion in
+§2A of the [evaluation report](docs/evaluation-report.md); raw files in
+`results_gemini/run2_2026-09-26/`.
+
+| | B1 static RAG | B3 Ripple |
+|---|---|---|
+| Claim support (grounding verifier) | not measured | **158 of 158** |
+| Fabricated citations | 0 | 0 |
+| Recall@k | 0.835 | **0.942** |
+| Per-intent coverage | **0.854** | 0.833 |
+| LLM calls / tokens per turn | **1.00 / 1,097** | 2.53 / 1,576 |
+| TTFT median | +2.070 s | **+1.795 s** |
+| TTFT median, multi-intent turns | — | **−3.17 s** (7 of 8 negative) |
+
+With a real model, Ripple stays fully grounded and retrieves better, at 1.44×
+the tokens. Its stub-era coverage lead does not survive, and negative TTFT
+survives only where it was designed to — answering a customer's first
+question while they are still asking the second. Currency cost is not
+reported: no published price is configured, and we do not guess one.
+
+```bash
+python -m evaluation.run_bench --split dev --provider gemini \
+       --systems B1_static_rag,B3_ripple --out results_gemini
+python -m evaluation.claim_support results_gemini/run2_2026-09-26/traces_dev
+```
+
+### Five ablations (stub provider), each changing exactly one variable
 
 | Variant | TTFT med | recall@k | intent cov | retr/turn |
 |---|---|---|---|---|

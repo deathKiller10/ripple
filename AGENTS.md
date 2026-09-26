@@ -23,7 +23,7 @@ full-duplex behaviour is the only mode that exists here.
 
 **Team** · Priyanshu Kundu · Souptik Hazra · Anushka Paul · Arpita Bhaumik
 **Repo** · https://github.com/deathKiller10/ripple
-**Due** · 25 Sep 2026, 23:59 · **Feature freeze 21 Sep** · Tag `PRISM_GENAI_HACKATHON_Y2026`
+**Due** · 30 Sep 2026 (target 29 Sep) · **Feature freeze 28 Sep** · Tag `PRISM_GENAI_HACKATHON_Y2026`
 
 ---
 
@@ -104,7 +104,7 @@ uvicorn ripple.server:app --port 8000     # dashboard at localhost:8000
 docker compose up                          # the judge's path — must always work
 
 # before every commit
-python tests/test_gates.py                 # 9 property tests, must stay 9/9
+python tests/test_gates.py                 # 11 property tests, must stay 11/11
 python -m evaluation.run_bench --split dev # all six gates, must stay PASS
 
 # after changing any threshold
@@ -114,7 +114,7 @@ python -m evaluation.calibrate
 ## Evaluation discipline — non-negotiable
 
 - **Calibrate on `dev` only.** `data/scenarios/heldout.jsonl` is run **once**,
-  after feature freeze on 21 Sep. Do not open it, do not tune against it, do
+  after feature freeze on 28 Sep. Do not open it, do not tune against it, do
   not "just check" it. It is the only credible answer to *"did you overfit to
   your own demo?"*.
 - **Never invent a number.** Every figure in the README, the deck or the report
@@ -185,4 +185,4 @@ should work, not what you should build.
 4. A demo where the judge *sees* retrieval fire before the sentence ends.
 
 Teams lose this not by building too little, but by still building on day eight.
-When in doubt after 21 Sep, the answer is no.
+When in doubt after 28 Sep, the answer is no.
