@@ -532,10 +532,24 @@ class GeminiProvider(Provider):
                     # thinkingConfig on a model that does not accept it. Drop
                     # the field and retry once rather than declaring the model
                     # dead over a knob we added.
+                    #
+                    # ANY 400, not only one that mentions thinking. A model
+                    # with no thinking mode (gemini-3.5-flash-lite) answered
+                    # with the generic "Request contains an invalid argument"
+                    # -- no hint which argument -- and the old test for the
+                    # word "think" let that through as a dead model. The
+                    # field is ours, so it is the first suspect; dropping it
+                    # costs one request, and the choice is remembered so the
+                    # rest of the run never pays for it again. If the 400
+                    # survives without the field, it is reported as-is.
+                    # (A key problem is not a thinking problem: those go
+                    # straight to the key fallback below.)
                     if (r.status_code == 400 and "thinkingConfig" in gen
-                            and "think" in detail.lower()):
+                            and "api key" not in detail.lower()):
                         gen.pop("thinkingConfig", None)
+                        self._no_thinking_config = True
                         last_err = "retrying without thinkingConfig"
+                        attempt -= 1
                         continue
                     # One more exception: a key the header route rejects.
                     # Try the ?key= form exactly once and remember the answer

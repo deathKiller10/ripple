@@ -226,8 +226,12 @@ def main() -> int:
                 print("        number it produces is only reproducible if you")
                 print("        also record the date you ran it.")
                 print()
-            print("  PowerShell:")
-            print(f'     Add-Content -Path .env -Value "RIPPLE_MODEL={found}"')
+            # NOT `Add-Content`. That appends a second RIPPLE_MODEL line,
+            # and the .env loader keeps the FIRST occurrence -- so following
+            # the old advice silently changed nothing.
+            print("  Open .env in Notepad and change the existing")
+            print("  RIPPLE_MODEL= line to the one above. Do not add a")
+            print("  second RIPPLE_MODEL line: only the first one is used.")
             print()
             print("  Then run this script once more to confirm, and start "
                   "the benchmark.")
