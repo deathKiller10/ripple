@@ -111,7 +111,8 @@ query never saw.
 ## 2A. Real-model results — `gemini-3.5-flash-lite`, 26 Sep 2026
 
 Dev split, **all 40 scenarios** (not a slice), B1 and B3. Google Gemini API,
-free tier. Run `2026-09-26T16:36:42Z`, code at commit `8e25364`. Zero failed
+free tier, client-side limit `RIPPLE_RPM=8` requests per minute (this sets
+how long a run takes, not its results: queueing is excluded from TTFT). Run `2026-09-26T16:36:42Z`, code at commit `8e25364`. Zero failed
 calls (B1 51 of 51, B3 129 of 129). Files: `results_gemini/run2_2026-09-26/`.
 
 | | B1 static RAG | **B3 Ripple** |

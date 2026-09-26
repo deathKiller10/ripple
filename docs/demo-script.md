@@ -17,6 +17,18 @@ python tests/test_gates.py                  # 11/11
 python -m evaluation.run_bench --split dev --ablations
 ```
 
+**Record with the keyless provider**, so the video costs no quota and every
+run looks the same. In PowerShell, in the `ripple` folder (this overrides
+`.env` for that window only):
+
+```powershell
+$env:RIPPLE_PROVIDER="stub"
+uvicorn ripple.server:app --port 8000
+```
+
+Only pick scenarios whose name starts with `dev_`. The list also shows
+`heldout_` scenarios; do not open them — that split is reserved.
+
 Open `http://localhost:8000`. Set the speed selector to **1× realtime** — the
 whole point is that a judge sees the clock. Full screen, 1080p, no browser
 chrome, no notifications. Record audio separately if your mic is poor; a clean
@@ -56,9 +68,12 @@ seconds — let the transcript fill and the stability curve climb.
 
 **Screen:** the TTFT tile flips negative.
 
-> "Time to first token, measured against end-of-utterance: **minus one second.**
-> The answer started before the sentence did. A turn-based system cannot produce
-> that number, because it hasn't started yet."
+> "Time to first token, measured against the end of the sentence: about
+> **minus one second** here. This recording uses our keyless mode, where the
+> model answers instantly, so read it as how early Ripple *starts*. On a real
+> model — Gemini — when a customer asks two things, the first answer lands a
+> median **three seconds before they finish**. A turn-based system cannot
+> produce a negative number, because it hasn't started yet."
 
 ## 2:00 – 3:05 · Beat 2 — late detail, refined not restarted
 
@@ -109,7 +124,9 @@ seconds — let the transcript fill and the stability curve climb.
 (pre-run; show the output, don't wait for it).
 
 > "Forty scenarios, fifty-one labelled turns, four systems on one harness.
-> All six acceptance gates pass.
+> All six acceptance gates pass. And on a real model — Gemini 3.5 Flash Lite,
+> all forty scenarios — 158 of 158 claims were backed by the passage they
+> cite, with zero invented citations, for 1.44 times static RAG's tokens.
 >
 > Against naive streaming — retrieve on every chunk — we use **thirty per cent
 > fewer retrievals** and trigger on **zero** of the turns that needed no
@@ -132,11 +149,10 @@ seconds — let the transcript fill and the stability curve climb.
 > suite headless and emits the guide's own §4 JSON — their field names — so a
 > private harness written against the spec can read our output unmodified.
 >
-> Two things we won't overclaim. Our grounding score of 1.000 is an artefact of
-> the keyless fallback, which answers by copying the sentence it cites; the real
-> number needs a model run, and we say so in the report. And our bottleneck is
-> selection, not retrieval — 0.960 recall against 0.772 coverage. We know
-> exactly where the next gain is.
+> Three things we won't overclaim. On a real model, our slowest answers are
+> slower than static RAG's, because we make more calls. Static RAG slightly
+> beats us at covering every sub-question. And our bottleneck is selection,
+> not retrieval. All three are in the report, with numbers."
 >
 > Ripple. Retrieval that starts before the sentence lands, and an answer that
 > updates itself instead of starting over."
