@@ -152,7 +152,7 @@ seconds — let the transcript fill and the stability curve climb.
 > Three things we won't overclaim. On a real model, our slowest answers are
 > slower than static RAG's, because we make more calls. Static RAG slightly
 > beats us at covering every sub-question. And our bottleneck is selection,
-> not retrieval. All three are in the report, with numbers."
+> not retrieval. All three are in the report, with numbers.
 >
 > Ripple. Retrieval that starts before the sentence lands, and an answer that
 > updates itself instead of starting over."
