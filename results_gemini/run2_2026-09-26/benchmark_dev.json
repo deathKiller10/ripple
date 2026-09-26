@@ -1,0 +1,169 @@
+{
+  "split": "dev",
+  "provider": "gemini",
+  "model": "gemini-3.5-flash-lite",
+  "scenarios_used": 40,
+  "scenarios_in_split": 40,
+  "is_slice": false,
+  "embedder": "tfidf-svd",
+  "reranker": "none",
+  "run_utc": "2026-09-26T16:36:42Z",
+  "config": {
+    "controller": {
+      "theta": 0.4,
+      "nu": 0.3,
+      "ema_alpha": 0.55,
+      "rbo_p": 0.9,
+      "shadow_k": 10,
+      "min_prefix_words": 4,
+      "jump_similarity": 0.42,
+      "always_retrieve": false,
+      "c_waste": 1.0,
+      "c_late": 175.0
+    },
+    "retrieval": {
+      "top_k": 20,
+      "rerank_candidates": 30,
+      "rrf_k": 60,
+      "dense_weight": 0.5,
+      "use_reranker": true,
+      "context_budget": 12,
+      "per_intent_floor": 2,
+      "mmr_lambda": 0.72,
+      "fusion": "coverage",
+      "dense_only": true,
+      "reranker": "none"
+    },
+    "synthesis": {
+      "provider": "gemini",
+      "model": "gemini-3.5-flash-lite",
+      "max_claims": 6,
+      "grounding_min_overlap": 0.18,
+      "rpm_limit": 8
+    },
+    "cost": {
+      "prompt_per_1m": 0.0,
+      "completion_per_1m": 0.0
+    },
+    "embedder": "tfidf-svd",
+    "corpus_path": "data/corpus/care",
+    "index_path": ".index",
+    "telemetry_path": "traces",
+    "session_ttl_s": 1800
+  },
+  "systems": {
+    "B1_static_rag": {
+      "early_retrieval_rate": 0.0,
+      "early_eligible": 43,
+      "early_hits": 0,
+      "false_trigger_rate": 1.0,
+      "no_retrieval_turns": 8,
+      "false_triggers": 8,
+      "multi_intent_accuracy": 0.0,
+      "compound_turns": 9,
+      "multi_intent_hits": 0,
+      "over_fragmentation_rate": 0.0,
+      "citation_support": 1.0,
+      "fabricated_citations": 0,
+      "total_citations": 85,
+      "state_continuity": 1.0,
+      "continuity_turns": 0,
+      "trace_coverage": 0.0,
+      "recall_at_k": 0.8354,
+      "per_intent_coverage": 0.8537,
+      "abstention_precision": 0.2222,
+      "abstention_recall": 1.0,
+      "ttft_median": 2.0696,
+      "ttft_p90": 2.4661,
+      "negative_ttft_rate": 0.0,
+      "retrievals_per_turn": 1.0,
+      "llm_calls_per_turn": 1.0,
+      "tokens_per_turn": 1096.549,
+      "cost_per_turn": 0.0,
+      "claim_survival": 0.0,
+      "wall_seconds": 337.09,
+      "llm_calls_ok": 51,
+      "llm_calls_failed": 0,
+      "rate_limit_wait_seconds": 229.2
+    },
+    "B3_ripple": {
+      "early_retrieval_rate": 0.8837,
+      "early_eligible": 43,
+      "early_hits": 38,
+      "false_trigger_rate": 0.0,
+      "no_retrieval_turns": 8,
+      "false_triggers": 0,
+      "multi_intent_accuracy": 0.8889,
+      "compound_turns": 9,
+      "multi_intent_hits": 8,
+      "over_fragmentation_rate": 0.0392,
+      "citation_support": 1.0,
+      "fabricated_citations": 0,
+      "total_citations": 97,
+      "state_continuity": 1.0,
+      "continuity_turns": 5,
+      "trace_coverage": 1.0,
+      "recall_at_k": 0.9421,
+      "per_intent_coverage": 0.8333,
+      "abstention_precision": 0.5,
+      "abstention_recall": 1.0,
+      "ttft_median": 1.7946,
+      "ttft_p90": 10.0524,
+      "negative_ttft_rate": 0.2424,
+      "retrievals_per_turn": 2.7451,
+      "llm_calls_per_turn": 2.5294,
+      "tokens_per_turn": 1576.2549,
+      "cost_per_turn": 0.0,
+      "claim_survival": 0.75,
+      "wall_seconds": 1117.97,
+      "llm_calls_ok": 129,
+      "llm_calls_failed": 0,
+      "rate_limit_wait_seconds": 597.6
+    }
+  },
+  "ablations": {},
+  "gates": [
+    {
+      "gate": "G2 early retrieval",
+      "value": 0.8837,
+      "target": 0.8,
+      "op": ">=",
+      "pass": true
+    },
+    {
+      "gate": "G3 multi-intent identification",
+      "value": 0.8889,
+      "target": 0.7,
+      "op": ">=",
+      "pass": true
+    },
+    {
+      "gate": "G4 citation support",
+      "value": 1.0,
+      "target": 0.85,
+      "op": ">=",
+      "pass": true
+    },
+    {
+      "gate": "G4 fabricated citations",
+      "value": 0,
+      "target": 0,
+      "op": "==",
+      "pass": true
+    },
+    {
+      "gate": "G5 state continuity",
+      "value": 1.0,
+      "target": 1.0,
+      "op": ">=",
+      "pass": true
+    },
+    {
+      "gate": "G6 telemetry trace coverage",
+      "value": 1.0,
+      "target": 1.0,
+      "op": ">=",
+      "pass": true
+    }
+  ]
+}

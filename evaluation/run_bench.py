@@ -286,6 +286,12 @@ def main(argv=None):
         cov = measure_trace_coverage(trace_dir) if name == "B3_ripple" else 0.0
         res = evaluate(runs, by_id, corpus_cites, trace_coverage=cov)
         report["systems"][name] = res.to_dict()
+        if name == "B3_ripple":
+            # The groundedness figure a model can move (see claim_support.py);
+            # citation_support is 1.000 by construction and is not it.
+            from evaluation.claim_support import measure_claim_support
+            report["systems"][name]["claim_support"] = \
+                measure_claim_support(trace_dir)
         report["systems"][name]["wall_seconds"] = round(secs, 2)
         good = getattr(engine.provider, "calls_made", 0) - before_ok
         bad = getattr(engine.provider, "calls_failed", 0) - before_bad
