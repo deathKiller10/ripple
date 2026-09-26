@@ -208,6 +208,26 @@ def main(argv=None):
             print("    3. Use a different key or project.")
             print("!" * 74)
             return 2
+        elif getattr(engine.provider, "server_unavailable", ""):
+            # GOOGLE'S SERVERS ARE DOWN OR OVERLOADED. Not a rejection, and
+            # nothing the user can fix. The old message said "rejected ...
+            # fix it" and pointed at check_key.py, which spends quota for no
+            # benefit -- and printed the request URL, key included.
+            print(" GOOGLE SERVERS BUSY")
+            print()
+            print("!" * 74)
+            print("  Google's servers kept failing (server error, not a")
+            print("  rejection):")
+            print(f"     {engine.provider.server_unavailable}")
+            print()
+            print("  This is a temporary problem on Google's side. Your key,")
+            print("  your quota and the model name are not the cause, so do")
+            print("  NOT run check_key.py -- it would only spend quota.")
+            print()
+            print("  Nothing was run. Wait 10-15 minutes and run the same")
+            print("  command again.")
+            print("!" * 74)
+            return 2
         else:
             print(" FAILED")
             print()

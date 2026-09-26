@@ -244,6 +244,16 @@ class StubProvider(Provider):
 # ---------------------------------------------------------------------------
 
 
+_KEY_IN_TEXT = re.compile(r"([?&]key=)[^&\s'\"]+")
+
+# Server-side failures that clear up on their own. A 503 means Google's
+# servers are overloaded; it says nothing about the key, the model or the
+# quota. Treating it like a rejection sent the user off to run check_key.py,
+# which is the wrong fix and spends quota.
+TRANSIENT_STATUS = (500, 502, 503, 504)
+TRANSIENT_WAITS = (5, 10, 20, 30, 45)   # seconds; ~2 minutes in total
+
+
 class GeminiProvider(Provider):
     name = "gemini"
     ENDPOINT = ("https://generativelanguage.googleapis.com/v1beta/models/"
@@ -273,11 +283,35 @@ class GeminiProvider(Provider):
         # Set when a quota is exhausted for the DAY rather than the minute.
         # Retrying that is not patience, it is a hang.
         self.quota_exhausted = ""
+        # Set when Google's servers kept failing (5xx) for every retry. A
+        # temporary problem on their side, reported as such.
+        self.server_unavailable = ""
+        self._key_in_url = False
 
     def available(self) -> bool:
         return bool(self.api_key)
 
+    def _redact(self, msg: str) -> str:
+        """Remove the API key from any text that might be printed.
+
+        An httpx error message contains the full request URL. When the key
+        travelled in that URL (?key=...), a server error printed the key
+        straight onto the user's screen -- and from there into a chat.
+        Every error string passes through here before it is stored.
+        """
+        msg = str(msg)
+        if self.api_key:
+            msg = msg.replace(self.api_key, "[key hidden]")
+        return _KEY_IN_TEXT.sub(r"\1[key hidden]", msg)
+
+    def _key_params(self) -> dict:
+        # Header only by default, so the key never appears in a URL. The
+        # ?key= form is kept only as a fallback for a key the header route
+        # rejects; see complete().
+        return {"key": self.api_key} if self._key_in_url else {}
+
     def _fail(self, msg: str) -> LLMResult:
+        msg = self._redact(msg)
         self.calls_failed += 1
         self.last_error = msg
         return LLMResult("", Cost(llm_calls=0), degraded=True, error=msg)
@@ -296,7 +330,7 @@ class GeminiProvider(Provider):
         if not self.available():
             return False, "no API key set (GEMINI_API_KEY)"
         try:
-            r = httpx.get(self.LIST_ENDPOINT, params={"key": self.api_key},
+            r = httpx.get(self.LIST_ENDPOINT, params=self._key_params(),
                           headers={"x-goog-api-key": self.api_key},
                           timeout=20.0)
             if r.status_code != 200:
@@ -305,7 +339,7 @@ class GeminiProvider(Provider):
                     detail = r.json().get("error", {}).get("message", "")[:220]
                 except Exception:
                     detail = r.text[:220]
-                return False, f"HTTP {r.status_code}: {detail}"
+                return False, self._redact(f"HTTP {r.status_code}: {detail}")
             names = []
             for m in r.json().get("models", []):
                 methods = m.get("supportedGenerationMethods", [])
@@ -313,7 +347,7 @@ class GeminiProvider(Provider):
                     names.append(m.get("name", "").replace("models/", ""))
             return True, names
         except Exception as e:  # noqa: BLE001
-            return False, f"{type(e).__name__}: {e}"
+            return False, self._redact(f"{type(e).__name__}: {e}")
 
     def try_model(self, name: str) -> tuple[bool, str]:
         """Actually generate with one model. Returns (worked, message).
@@ -352,7 +386,7 @@ class GeminiProvider(Provider):
         """
         res = self.complete("Reply with the single word: ok")
         if self.fatal_error:
-            return False, self.fatal_error
+            return False, self._redact(self.fatal_error)
         if res.degraded:
             return False, res.error or "unknown failure"
         reply = (res.text or "").strip()
@@ -403,16 +437,21 @@ class GeminiProvider(Provider):
         url = self.ENDPOINT.format(model=self.model)
         last_err = ""
         escalated = False
-        for attempt in range(4):
+        transient = 0          # consecutive server-side (5xx / network) failures
+        self.server_unavailable = ""
+        attempt = -1
+        while attempt < 3:
+            attempt += 1
             self.bucket.acquire()
             try:
-                # Key sent BOTH ways on purpose. Google has documented the
-                # `?key=` query parameter for years and the `x-goog-api-key`
-                # header more recently; which one a given key works with has
-                # changed over time and is not something we should guess at
-                # from the key's prefix. Sending both is harmless and removes
-                # a whole class of "the key is fine but the call is rejected".
-                r = httpx.post(url, params={"key": self.api_key},
+                # KEY IN THE HEADER ONLY. An earlier version also sent it as
+                # ?key= in the URL "to be safe" -- and when Google returned a
+                # 503, the error message printed that URL, key included, onto
+                # the user's screen. A header is never part of an error
+                # message. The URL form survives only as a one-time fallback
+                # for a key the header route rejects (see the 400/401/403
+                # branch), and even then every error string is redacted.
+                r = httpx.post(url, params=self._key_params(),
                                headers={"x-goog-api-key": self.api_key},
                                json=body, timeout=30.0)
                 if r.status_code == 429:
@@ -440,9 +479,30 @@ class GeminiProvider(Provider):
                     wait = delay if delay > 0 else 2 ** attempt * 2.0
                     last_err = (f"rate limited, waited {wait:.0f}s"
                                 + (f" ({msg})" if msg else ""))
-                    self.last_error = last_err
+                    self.last_error = self._redact(last_err)
                     time.sleep(min(wait, 60.0))
                     continue
+                if r.status_code in TRANSIENT_STATUS:
+                    # GOOGLE'S PROBLEM, NOT OURS. Wait and retry on a longer
+                    # schedule than a normal error gets: the old 1-2-3 second
+                    # retries gave an overloaded server six seconds to recover
+                    # and then declared the call "rejected". These retries do
+                    # not use up the ordinary attempt budget.
+                    if transient < len(TRANSIENT_WAITS):
+                        wait = TRANSIENT_WAITS[transient]
+                        transient += 1
+                        attempt -= 1
+                        last_err = (f"Google server error HTTP "
+                                    f"{r.status_code}; retrying in {wait}s")
+                        self.last_error = last_err
+                        time.sleep(wait)
+                        continue
+                    self.server_unavailable = (
+                        f"Google returned HTTP {r.status_code} on "
+                        f"{transient + 1} attempts over about "
+                        f"{sum(TRANSIENT_WAITS)}s")
+                    return self._fail("server unavailable: "
+                                      + self.server_unavailable)
                 if r.status_code in (400, 401, 403, 404):
                     # FAIL FAST on a permanent error. Retrying a rejected key
                     # or a wrong model name never succeeds, and an earlier
@@ -464,7 +524,18 @@ class GeminiProvider(Provider):
                         gen.pop("thinkingConfig", None)
                         last_err = "retrying without thinkingConfig"
                         continue
-                    self.fatal_error = f"HTTP {r.status_code}: {detail}"
+                    # One more exception: a key the header route rejects.
+                    # Try the ?key= form exactly once and remember the answer
+                    # for the rest of the run. Errors stay redacted.
+                    if (r.status_code in (400, 401, 403)
+                            and not self._key_in_url
+                            and "key" in detail.lower()):
+                        self._key_in_url = True
+                        last_err = "retrying with the key as a URL parameter"
+                        attempt -= 1
+                        continue
+                    self.fatal_error = self._redact(
+                        f"HTTP {r.status_code}: {detail}")
                     return self._fail(self.fatal_error)
                 r.raise_for_status()
                 data = r.json()
@@ -534,7 +605,18 @@ class GeminiProvider(Provider):
                               llm_calls=1, currency_cost=money),
                 )
             except Exception as e:  # noqa: BLE001
-                last_err = f"{type(e).__name__}: {e}"
+                last_err = self._redact(f"{type(e).__name__}: {e}")
+                self.last_error = last_err
+                # A timeout or dropped connection is transient too; give it
+                # the same patient schedule as a 5xx.
+                import httpx as _hx
+                if (isinstance(e, (_hx.TimeoutException, _hx.NetworkError))
+                        and transient < len(TRANSIENT_WAITS)):
+                    wait = TRANSIENT_WAITS[transient]
+                    transient += 1
+                    attempt -= 1
+                    time.sleep(wait)
+                    continue
                 time.sleep(1.0 * (attempt + 1))
         return self._fail(last_err)
 
