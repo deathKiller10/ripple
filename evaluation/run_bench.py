@@ -123,6 +123,15 @@ def main(argv=None):
     ap.add_argument("--provider", default=None)
     ap.add_argument("--embedder", default=None)
     ap.add_argument("--ablations", action="store_true")
+    # A real-model run is bounded by free-tier quota, not by patience. A
+    # documented slice of the split beats no real-model numbers at all -- and
+    # beats a full run that dies at scenario 31 and reports nothing. Slicing is
+    # deterministic (first N of a fixed file) and the count is recorded in the
+    # report, so the table can say what it actually measured.
+    ap.add_argument("--limit", type=int, default=0,
+                    help="use only the first N scenarios (0 = all). Records "
+                         "the count in the report so a slice cannot be "
+                         "mistaken for the full split.")
     ap.add_argument("--systems", default="B0_llm_only,B1_static_rag,"
                                          "B2_naive_streaming,B3_ripple")
     args = ap.parse_args(argv)
@@ -141,11 +150,16 @@ def main(argv=None):
     corpus_cites = {norm_cite(c.cite) for c in engine.index.chunks}
     path = f"data/scenarios/{args.split}.jsonl"
     scenarios = load_scenarios(path)
+    full_n = len(scenarios)
+    if args.limit and args.limit < full_n:
+        scenarios = scenarios[:args.limit]
     by_id = {s.scenario_id: s for s in scenarios}
 
     model_note = (f"  model={cfg.synthesis.model}"
                   if engine.provider.name != "stub" else "")
-    print(f"split={args.split}  scenarios={len(scenarios)}  "
+    slice_note = (f" (SLICE of {full_n} -- not the full split)"
+                  if len(scenarios) < full_n else "")
+    print(f"split={args.split}  scenarios={len(scenarios)}{slice_note}  "
           f"provider={engine.provider.name}{model_note}  "
           f"embedder={cfg.embedder}  "
           f"reranker={getattr(engine.reranker, 'name', '?')}")
@@ -154,8 +168,46 @@ def main(argv=None):
     if engine.provider.name != "stub" and hasattr(engine.provider, "preflight"):
         print("  checking the provider with one call ...", end="", flush=True)
         ok, detail = engine.provider.preflight()
+        # A RATE LIMIT IS NOT A CONFIGURATION ERROR. The old code treated any
+        # preflight failure as fatal and told the user to go fix something,
+        # which is wrong and slightly insulting advice when the actual problem
+        # is that check_key.py used the minute's quota ten seconds earlier.
+        # Wait it out once; a quota that resets in 30s is not worth a re-run.
+        if not ok and "rate limit" in detail.lower():
+            print(" rate limited")
+            for wait in (20, 40):
+                print(f"  free-tier quota is busy; waiting {wait}s and "
+                      f"retrying ...", end="", flush=True)
+                time.sleep(wait)
+                ok, detail = engine.provider.preflight()
+                if ok or "rate limit" not in detail.lower():
+                    break
+                print(" still limited")
         if ok:
             print(f" ok  (model replied {detail!r})")
+        elif getattr(engine.provider, "quota_exhausted", ""):
+            print(" DAILY QUOTA EXHAUSTED")
+            print()
+            print("!" * 74)
+            print(f"  This key has no generation quota left today:")
+            print(f"     {engine.provider.quota_exhausted}")
+            print()
+            print("  Nothing was run, and waiting will not help -- a per-day")
+            print("  quota resets at midnight Pacific time, not in a minute.")
+            print()
+            print("  Three ways forward:")
+            print("    1. Run the keyless version now. It measures the")
+            print("       architecture (gates G2/G3/G5/G6 do not need an LLM):")
+            print("         python -m evaluation.run_bench --split dev")
+            print("    2. Run a SMALL real-model slice when quota returns, and")
+            print("       say in the report that it is a slice:")
+            print("         python -m evaluation.run_bench --split dev \\")
+            print("                --provider gemini --limit 8 \\")
+            print("                --systems B1_static_rag,B3_ripple \\")
+            print("                --out results_gemini")
+            print("    3. Use a different key or project.")
+            print("!" * 74)
+            return 2
         else:
             print(" FAILED")
             print()
@@ -187,7 +239,16 @@ def main(argv=None):
     os.makedirs(args.out, exist_ok=True)
     trace_dir = os.path.join(args.out, f"traces_{args.split}")
     report: dict = {"split": args.split, "provider": engine.provider.name,
-                    "model": cfg.synthesis.model,
+                    # Only name a model when a model was actually used. On a
+                    # stub run this recorded whatever RIPPLE_MODEL happened to
+                    # say, which is an attribution to a model that was never
+                    # called -- precisely the kind of claim the evaluation
+                    # report exists to keep out.
+                    "model": (cfg.synthesis.model
+                              if engine.provider.name != "stub" else None),
+                    "scenarios_used": len(scenarios),
+                    "scenarios_in_split": full_n,
+                    "is_slice": len(scenarios) < full_n,
                     "embedder": cfg.embedder,
                     "reranker": getattr(engine.reranker, "name", "?"),
                     "config": cfg.to_dict(), "systems": {}, "ablations": {}}

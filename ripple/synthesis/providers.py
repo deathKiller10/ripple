@@ -38,6 +38,56 @@ from typing import Optional
 from ..schemas import Cost
 
 
+def parse_429(r) -> tuple[float, str, str]:
+    """Pull the useful content out of a rate-limit response.
+
+    Returns (retry_after_seconds, "minute"|"day"|"", human_message).
+
+    Three sources, in order of trustworthiness: the Retry-After header, the
+    RetryInfo detail Google attaches to the error, and finally the quota
+    metric name, which is what says whether this clears in a minute or at
+    midnight. That distinction decides whether the right move is to wait or to
+    stop, so it is worth the twenty lines.
+    """
+    delay = 0.0
+    quota = ""
+    msg = ""
+    try:
+        ra = r.headers.get("Retry-After", "")
+        if ra:
+            delay = float(ra)
+    except Exception:
+        pass
+    try:
+        err = (r.json() or {}).get("error", {})
+        msg = (err.get("message", "") or "")[:200]
+        for det in err.get("details", []) or []:
+            t = str(det.get("@type", ""))
+            if "RetryInfo" in t:
+                m = re.match(r"([\d.]+)s", str(det.get("retryDelay", "")))
+                if m:
+                    delay = max(delay, float(m.group(1)))
+            if "QuotaFailure" in t:
+                for v in det.get("violations", []) or []:
+                    metric = (str(v.get("quotaId", ""))
+                              + " " + str(v.get("quotaMetric", ""))).lower()
+                    if "perday" in metric.replace("_", ""):
+                        quota = "day"
+                    elif not quota and "perminute" in metric.replace("_", ""):
+                        quota = "minute"
+                    if v.get("quotaId"):
+                        msg = str(v["quotaId"])[:120]
+    except Exception:
+        pass
+    if not quota:
+        low = msg.lower().replace("_", "").replace(" ", "")
+        if "perday" in low:
+            quota = "day"
+        elif "perminute" in low:
+            quota = "minute"
+    return delay, quota, msg
+
+
 def usage_thoughts(data: dict) -> int:
     """Reasoning tokens the model charged us for, if it says.
 
@@ -97,8 +147,25 @@ class TokenBucket:
         self.capacity = max(1, rpm)
         self.tokens = float(self.capacity)
         self.refill_rate = self.capacity / 60.0
+        self.rpm = float(self.capacity)
         self.last = time.monotonic()
         self._lock = threading.Lock()
+
+    def throttle(self, factor: float = 0.6, floor_rpm: float = 2.0) -> float:
+        """Permanently slow down after the server says we are too fast.
+
+        The configured RPM is a guess about someone else's quota. A 429 is the
+        authoritative correction, so the bucket adopts it instead of continuing
+        at a rate now known to be wrong -- otherwise every call re-earns the
+        same 429 and the run degenerates into paying full latency for backoff.
+        Multiplicative decrease, with a floor so it cannot throttle to a halt.
+        """
+        with self._lock:
+            self.rpm = max(floor_rpm, self.rpm * factor)
+            self.refill_rate = self.rpm / 60.0
+            self.tokens = 0.0
+            self.last = time.monotonic()
+            return self.rpm
 
     def acquire(self) -> float:
         with self._lock:
@@ -200,6 +267,12 @@ class GeminiProvider(Provider):
         # goes up on success cannot tell you about the ones that did not.
         self.calls_failed = 0
         self.last_error = ""
+        # Learned once, reused for the rest of the run. See complete().
+        self._output_floor = self.MIN_OUTPUT_TOKENS
+        self._no_thinking_config = False
+        # Set when a quota is exhausted for the DAY rather than the minute.
+        # Retrying that is not patience, it is a hang.
+        self.quota_exhausted = ""
 
     def available(self) -> bool:
         return bool(self.api_key)
@@ -308,12 +381,20 @@ class GeminiProvider(Provider):
         # the field ignore it; models that refuse it are caught by the 400
         # handler below, which is why the retry there strips it rather than
         # giving up. The floor is belt-and-braces for whatever thinks anyway.
+        # The floor is an INSTANCE value, not the class constant, so that a
+        # budget learned by escalation sticks for the rest of the run. Without
+        # this every single call paid for a doomed small attempt first, which
+        # doubles the request count -- and on a free tier the request count is
+        # the scarce resource, so the fix for one bug was quietly causing the
+        # next one (the 429s).
         gen = {
             "temperature": 0.1,
-            "maxOutputTokens": max(max_tokens, self.MIN_OUTPUT_TOKENS),
+            "maxOutputTokens": max(max_tokens, self._output_floor),
             "topP": 0.9,
             "thinkingConfig": {"thinkingBudget": 0},
         }
+        if self._no_thinking_config:
+            gen.pop("thinkingConfig")
         body = {"contents": [{"parts": [{"text": prompt}]}],
                 "generationConfig": gen}
         if json_mode:
@@ -335,8 +416,32 @@ class GeminiProvider(Provider):
                                headers={"x-goog-api-key": self.api_key},
                                json=body, timeout=30.0)
                 if r.status_code == 429:
-                    time.sleep(2 ** attempt * 2.0)
-                    last_err = "rate_limited"
+                    # A 429 IS NOT ONE CONDITION, and the old code treated it as
+                    # one: sleep, retry, and on give-up report the bare word
+                    # "rate_limited", which tells you nothing you can act on.
+                    #
+                    # Google's 429 body distinguishes a per-MINUTE quota (wait a
+                    # few seconds, it clears) from a per-DAY one (nothing clears
+                    # until tomorrow, so retrying is a hang with extra steps),
+                    # and usually names a retryDelay. Guessing 2/4/8 seconds
+                    # while ignoring a number the server supplied is strictly
+                    # worse than using it.
+                    delay, quota, msg = parse_429(r)
+                    if quota == "day":
+                        self.quota_exhausted = msg or "daily request limit"
+                        self.fatal_error = ("daily quota exhausted: "
+                                            + self.quota_exhausted)
+                        return self._fail(self.fatal_error)
+                    # Slow the client-side bucket to match reality. The
+                    # configured RPM was our guess; a 429 is the server's
+                    # correction, and continuing at the guessed rate only
+                    # earns another one.
+                    self.bucket.throttle()
+                    wait = delay if delay > 0 else 2 ** attempt * 2.0
+                    last_err = (f"rate limited, waited {wait:.0f}s"
+                                + (f" ({msg})" if msg else ""))
+                    self.last_error = last_err
+                    time.sleep(min(wait, 60.0))
                     continue
                 if r.status_code in (400, 401, 403, 404):
                     # FAIL FAST on a permanent error. Retrying a rejected key
@@ -392,6 +497,11 @@ class GeminiProvider(Provider):
                         gen["maxOutputTokens"] = min(
                             4096, gen["maxOutputTokens"] * 4)
                         gen.pop("thinkingConfig", None)  # it was ignored anyway
+                        # REMEMBER IT. Learning this per call instead of once
+                        # per run doubles the request count against the quota
+                        # that is already the binding constraint.
+                        self._output_floor = gen["maxOutputTokens"]
+                        self._no_thinking_config = True
                         last_err = (f"empty at {thought} thinking tokens; "
                                     f"retrying at "
                                     f"{gen['maxOutputTokens']} output tokens")
