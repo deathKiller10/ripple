@@ -280,7 +280,9 @@ class RippleSession:
             items = self._rank_pool_for(intent.focus(), intent.id)[:3]
             if not self._relevance_ok(intent.focus(), items):
                 continue
+            call0 = time.perf_counter()
             res = self.synthesizer.synthesize(intent.focus(), items)
+            call_s = time.perf_counter() - call0
             # A call that produced no usable claim was still PAID FOR. Recording
             # cost only after the claims check made every discarded draft free
             # in our own accounts -- invisible with the zero-cost stub, and an
@@ -297,7 +299,8 @@ class RippleSession:
                 confidence=sc.confidence, note="speculative draft")
             self.pool.promote(sc.evidence_ids)
             if self.first_token_t is None:
-                self.first_token_t = t
+                # t + the model's own reply time. See _maybe_speculate.
+                self.first_token_t = t + call_s
                 self.bus.emit(EventType.FIRST_TOKEN, claim_id=claim.id,
                               detail={"speculative": True,
                                       "trigger": "topic_closed_by_speaker",
@@ -326,7 +329,9 @@ class RippleSession:
         items = [i for i in items if i]
         if not self._relevance_ok(intent.text, items):
             return
+        call0 = time.perf_counter()
         res = self.synthesizer.synthesize(intent.text, items)
+        call_s = time.perf_counter() - call0
         # Cost first: a discarded draft was still paid for (see above).
         self.turn_cost = self.turn_cost + res.cost
         self.bus.add_cost(res.cost)
@@ -339,9 +344,17 @@ class RippleSession:
             confidence=sc.confidence, note="speculative draft",
         )
         self.pool.promote(sc.evidence_ids)
-        self.first_token_t = t
+        # THE FIRST TOKEN EXISTS WHEN THE MODEL HAS ANSWERED, not when we
+        # asked it. `t` is the transcript time the draft was triggered; the
+        # call itself takes real seconds. Stamping `t` alone left the model's
+        # latency out of Ripple's TTFT while the B1 baseline's stopwatch
+        # included it -- invisible with the microsecond stub, and worth ~2 s
+        # of flattery with a real model. The speech keeps arriving while the
+        # call runs, so trigger time + call time is when the answer lands.
+        self.first_token_t = t + call_s
         self.bus.emit(EventType.FIRST_TOKEN, claim_id=claim.id,
-                      detail={"speculative": True, "intent": intent.text})
+                      detail={"speculative": True, "intent": intent.text,
+                              "model_seconds": round(call_s, 3)})
         self.bus.emit(EventType.CLAIM_EMITTED, claim_id=claim.id,
                       citations=sc.citations, intent_id=intent.id,
                       detail={"speculative": True, "text": sc.text})
@@ -351,6 +364,10 @@ class RippleSession:
     @instrumented("end_utterance")
     def end_utterance(self, t: float) -> TurnResult:
         self.bus.set_virtual_clock(t)
+        # Wall-clock start of end-of-utterance work, so an answer produced
+        # here is stamped t + (retrieval + model time), the same stopwatch
+        # the B1 baseline uses.
+        self._end_wall0 = time.perf_counter()
         self.bus.emit(EventType.UTTERANCE_END, prefix_text=self.prefix)
         utterance = self.prefix.strip()
         self.utterance_index += 1
@@ -702,7 +719,9 @@ class RippleSession:
                     confidence=sc.confidence)
                 self.pool.promote(sc.evidence_ids)
                 if self.first_token_t is None:
-                    self.first_token_t = t
+                    self.first_token_t = t + (time.perf_counter()
+                                              - getattr(self, "_end_wall0",
+                                                        time.perf_counter()))
                     self.bus.emit(EventType.FIRST_TOKEN, claim_id=claim.id,
                                   detail={"speculative": False})
                 self.bus.emit(EventType.CLAIM_EMITTED, claim_id=claim.id,

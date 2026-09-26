@@ -197,13 +197,19 @@ def run_b2(engine: RippleEngine, scenario: Scenario) -> SystemRun:
             items = [pool.add(h.chunk, h.score, "single", ch.t, "chunk",
                               provisional=False)
                      for h in hits[: cfg.retrieval.context_budget]]
+            call0 = time.perf_counter()
             res = synth.synthesize(prefix, items)
+            call_s = time.perf_counter() - call0
             llm_calls += res.cost.llm_calls
             pt += res.cost.prompt_tokens
             ct += res.cost.completion_tokens
             money += res.cost.currency_cost
             if res.claims and first_token_t is None:
-                first_token_t = ch.t
+                # Chunk time + the model's reply time, as in the engine: the
+                # answer exists when the model has returned it, not when it
+                # was asked. Without this a real model's latency vanished
+                # from streaming systems' TTFT but not from B1's.
+                first_token_t = ch.t + call_s
             last = res
 
         cites: list[str] = []
