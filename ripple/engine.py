@@ -280,9 +280,9 @@ class RippleSession:
             items = self._rank_pool_for(intent.focus(), intent.id)[:3]
             if not self._relevance_ok(intent.focus(), items):
                 continue
-            call0 = time.perf_counter()
+            call0, wait0 = time.perf_counter(), self._provider_wait()
             res = self.synthesizer.synthesize(intent.focus(), items)
-            call_s = time.perf_counter() - call0
+            call_s = self._working_seconds(call0, wait0)
             # A call that produced no usable claim was still PAID FOR. Recording
             # cost only after the claims check made every discarded draft free
             # in our own accounts -- invisible with the zero-cost stub, and an
@@ -329,9 +329,9 @@ class RippleSession:
         items = [i for i in items if i]
         if not self._relevance_ok(intent.text, items):
             return
-        call0 = time.perf_counter()
+        call0, wait0 = time.perf_counter(), self._provider_wait()
         res = self.synthesizer.synthesize(intent.text, items)
-        call_s = time.perf_counter() - call0
+        call_s = self._working_seconds(call0, wait0)
         # Cost first: a discarded draft was still paid for (see above).
         self.turn_cost = self.turn_cost + res.cost
         self.bus.add_cost(res.cost)
@@ -362,12 +362,26 @@ class RippleSession:
     # ------------------------------------------------------------ resolution
 
     @instrumented("end_utterance")
+    def _provider_wait(self) -> float:
+        return float(getattr(self.provider, "wait_s", 0.0))
+
+    def _working_seconds(self, wall0: float, wait0: float) -> float:
+        """Wall time since wall0, minus time the provider spent queueing.
+
+        Queueing for a free-tier rate limit is a property of our API plan,
+        not of the system or the model; counting it made TTFT a measure of
+        how many requests per minute Google allows.
+        """
+        waited = self._provider_wait() - wait0
+        return max(0.0, (time.perf_counter() - wall0) - waited)
+
     def end_utterance(self, t: float) -> TurnResult:
         self.bus.set_virtual_clock(t)
         # Wall-clock start of end-of-utterance work, so an answer produced
         # here is stamped t + (retrieval + model time), the same stopwatch
         # the B1 baseline uses.
         self._end_wall0 = time.perf_counter()
+        self._end_wait0 = self._provider_wait()
         self.bus.emit(EventType.UTTERANCE_END, prefix_text=self.prefix)
         utterance = self.prefix.strip()
         self.utterance_index += 1
@@ -719,9 +733,9 @@ class RippleSession:
                     confidence=sc.confidence)
                 self.pool.promote(sc.evidence_ids)
                 if self.first_token_t is None:
-                    self.first_token_t = t + (time.perf_counter()
-                                              - getattr(self, "_end_wall0",
-                                                        time.perf_counter()))
+                    self.first_token_t = t + self._working_seconds(
+                        getattr(self, "_end_wall0", time.perf_counter()),
+                        getattr(self, "_end_wait0", self._provider_wait()))
                     self.bus.emit(EventType.FIRST_TOKEN, claim_id=claim.id,
                                   detail={"speculative": False})
                 self.bus.emit(EventType.CLAIM_EMITTED, claim_id=claim.id,

@@ -271,6 +271,9 @@ def main(argv=None):
                     "is_slice": len(scenarios) < full_n,
                     "embedder": cfg.embedder,
                     "reranker": getattr(engine.reranker, "name", "?"),
+                    # A real-model number is only reproducible with its date.
+                    "run_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                             time.gmtime()),
                     "config": cfg.to_dict(), "systems": {}, "ablations": {}}
 
     rows = []
@@ -278,6 +281,7 @@ def main(argv=None):
         sink = trace_dir if name == "B3_ripple" else None
         before_ok = getattr(engine.provider, "calls_made", 0)
         before_bad = getattr(engine.provider, "calls_failed", 0)
+        before_wait = getattr(engine.provider, "wait_s", 0.0)
         runs, secs = run_system(name, engine, scenarios, sink_dir=sink)
         cov = measure_trace_coverage(trace_dir) if name == "B3_ripple" else 0.0
         res = evaluate(runs, by_id, corpus_cites, trace_coverage=cov)
@@ -287,6 +291,10 @@ def main(argv=None):
         bad = getattr(engine.provider, "calls_failed", 0) - before_bad
         report["systems"][name]["llm_calls_ok"] = good
         report["systems"][name]["llm_calls_failed"] = bad
+        # Reported, never hidden: how much of wall_seconds was spent queueing
+        # for the free-tier rate limit. It is excluded from TTFT.
+        report["systems"][name]["rate_limit_wait_seconds"] = round(
+            getattr(engine.provider, "wait_s", 0.0) - before_wait, 1)
 
         # STOP rather than tabulate garbage. If most calls to the model failed,
         # every groundedness and cost number below is computed over empty

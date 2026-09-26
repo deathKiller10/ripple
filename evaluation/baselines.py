@@ -124,6 +124,7 @@ def run_b1(engine: RippleEngine, scenario: Scenario) -> SystemRun:
         text = " ".join(c.text for c in utt)
         t_end = utt[-1].t
         t0 = time.perf_counter()
+        w0 = getattr(engine.provider, "wait_s", 0.0)
         history.append(text)
         # Static RAG has no session state worth the name: a follow-up is
         # handled by concatenating history and searching again from scratch.
@@ -153,7 +154,11 @@ def run_b1(engine: RippleEngine, scenario: Scenario) -> SystemRun:
             currency_cost=res.cost.currency_cost,
             # Retrieval starts only once the utterance is complete, so the
             # first token can never precede the end of the utterance.
-            ttft_rel_end=(time.perf_counter() - t0), fired_before_end=False,
+            # Minus time spent queueing for the provider's rate limit: that
+            # measures our API plan, not the system (see Provider.wait_s).
+            ttft_rel_end=max(0.0, (time.perf_counter() - t0)
+                             - (getattr(engine.provider, "wait_s", 0.0) - w0)),
+            fired_before_end=False,
             change_summary={"regenerated": True},
             wall_ms=(time.perf_counter() - t0) * 1000))
     run.retrieval_calls = len(run.turns)
@@ -198,8 +203,10 @@ def run_b2(engine: RippleEngine, scenario: Scenario) -> SystemRun:
                               provisional=False)
                      for h in hits[: cfg.retrieval.context_budget]]
             call0 = time.perf_counter()
+            w0 = getattr(engine.provider, "wait_s", 0.0)
             res = synth.synthesize(prefix, items)
-            call_s = time.perf_counter() - call0
+            call_s = max(0.0, (time.perf_counter() - call0)
+                         - (getattr(engine.provider, "wait_s", 0.0) - w0))
             llm_calls += res.cost.llm_calls
             pt += res.cost.prompt_tokens
             ct += res.cost.completion_tokens

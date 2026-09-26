@@ -135,6 +135,18 @@ class LLMResult:
 class Provider:
     name = "base"
 
+    # Seconds this provider has spent WAITING rather than working: in the
+    # client-side rate limiter, or sleeping out a 429 / 5xx before a retry.
+    # A stopwatch around a model call subtracts the growth of this number so
+    # that time-to-first-token measures the model and the system, not a
+    # free-tier queue. The first real-model run measured B1's TTFT as 7.45 s,
+    # which was almost exactly 60 s / 8 rpm: the queue, not the model.
+    wait_s: float = 0.0
+
+    def _sleep(self, seconds: float) -> None:
+        time.sleep(seconds)
+        self.wait_s += seconds
+
     def complete(self, prompt: str, max_tokens: int = 600,
                  json_mode: bool = False) -> LLMResult:
         raise NotImplementedError
@@ -179,6 +191,21 @@ class TokenBucket:
             self.tokens = 0.0
             self.last = time.monotonic()
             return self.rpm
+
+    def recover(self, step_rpm: float = 0.25) -> None:
+        """Speed back up after a slowdown, a little per successful call.
+
+        throttle() only ever went DOWN. One early 429 therefore slowed the
+        whole rest of a run -- the first full real-model run spent 8018 s on
+        128 calls, about 1 call per minute against a limit of 15 -- because
+        the rate it fell to was never re-tested. Additive increase back to
+        the configured ceiling, multiplicative decrease on a 429: the
+        standard way to share a limit you cannot see.
+        """
+        with self._lock:
+            if self.rpm < self.capacity:
+                self.rpm = min(float(self.capacity), self.rpm + step_rpm)
+                self.refill_rate = self.rpm / 60.0
 
     def acquire(self) -> float:
         with self._lock:
@@ -455,7 +482,7 @@ class GeminiProvider(Provider):
         attempt = -1
         while attempt < 3:
             attempt += 1
-            self.bucket.acquire()
+            self.wait_s += self.bucket.acquire()
             try:
                 # KEY IN THE HEADER ONLY. An earlier version also sent it as
                 # ?key= in the URL "to be safe" -- and when Google returned a
@@ -493,7 +520,7 @@ class GeminiProvider(Provider):
                     last_err = (f"rate limited, waited {wait:.0f}s"
                                 + (f" ({msg})" if msg else ""))
                     self.last_error = self._redact(last_err)
-                    time.sleep(min(wait, 60.0))
+                    self._sleep(min(wait, 60.0))
                     continue
                 if r.status_code in TRANSIENT_STATUS:
                     # GOOGLE'S PROBLEM, NOT OURS. Wait and retry on a longer
@@ -508,7 +535,7 @@ class GeminiProvider(Provider):
                         last_err = (f"Google server error HTTP "
                                     f"{r.status_code}; retrying in {wait}s")
                         self.last_error = last_err
-                        time.sleep(wait)
+                        self._sleep(wait)
                         continue
                     self.server_unavailable = (
                         f"Google returned HTTP {r.status_code} on "
@@ -626,6 +653,7 @@ class GeminiProvider(Provider):
                 money = (self.cost_table.compute(pt, ct)
                          if self.cost_table else 0.0)
                 self.calls_made += 1
+                self.bucket.recover()
                 return LLMResult(
                     text=text,
                     cost=Cost(prompt_tokens=pt, completion_tokens=ct,
@@ -642,9 +670,9 @@ class GeminiProvider(Provider):
                     wait = TRANSIENT_WAITS[transient]
                     transient += 1
                     attempt -= 1
-                    time.sleep(wait)
+                    self._sleep(wait)
                     continue
-                time.sleep(1.0 * (attempt + 1))
+                self._sleep(1.0 * (attempt + 1))
         return self._fail(last_err)
 
 
@@ -700,12 +728,12 @@ class OpenAIProvider(Provider):
         headers = {"Authorization": f"Bearer {self.api_key}"}
         last_err = ""
         for attempt in range(4):
-            self.bucket.acquire()
+            self.wait_s += self.bucket.acquire()
             try:
                 r = httpx.post(self.ENDPOINT, json=body, headers=headers,
                                timeout=30.0)
                 if r.status_code == 429:
-                    time.sleep(2 ** attempt * 2.0)
+                    self._sleep(2 ** attempt * 2.0)
                     last_err = "rate_limited"
                     continue
                 if r.status_code in (400, 401, 403, 404):
@@ -721,6 +749,7 @@ class OpenAIProvider(Provider):
                 money = (self.cost_table.compute(pt, ct)
                          if self.cost_table else 0.0)
                 self.calls_made += 1
+                self.bucket.recover()
                 return LLMResult(
                     text=text,
                     cost=Cost(prompt_tokens=pt, completion_tokens=ct,
@@ -728,7 +757,7 @@ class OpenAIProvider(Provider):
                 )
             except Exception as e:  # noqa: BLE001
                 last_err = f"{type(e).__name__}: {e}"
-                time.sleep(1.0 * (attempt + 1))
+                self._sleep(1.0 * (attempt + 1))
         return LLMResult("", Cost(llm_calls=0), degraded=True, error=last_err)
 
 
