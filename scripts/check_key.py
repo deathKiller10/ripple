@@ -218,6 +218,14 @@ def main() -> int:
             print()
             print(f"     RIPPLE_MODEL={found}")
             print()
+            if "latest" in found or "preview" in found:
+                # Say this out loud rather than quietly recording a number
+                # against a name that may not mean the same thing next week.
+                print("  NOTE: that is a moving name, not a pinned version. It")
+                print("        can change model under you, so the benchmark")
+                print("        number it produces is only reproducible if you")
+                print("        also record the date you ran it.")
+                print()
             print("  PowerShell:")
             print(f'     Add-Content -Path .env -Value "RIPPLE_MODEL={found}"')
             print()

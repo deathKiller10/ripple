@@ -38,6 +38,17 @@ from typing import Optional
 from ..schemas import Cost
 
 
+def usage_thoughts(data: dict) -> int:
+    """Reasoning tokens the model charged us for, if it says.
+
+    Worth reading rather than inferring: it is the difference between "the
+    model is broken" and "the model thought for 900 tokens and had none left
+    to answer with", and those need different responses.
+    """
+    u = data.get("usageMetadata", {}) or {}
+    return int(u.get("thoughtsTokenCount", 0) or 0)
+
+
 def _i_env(name: str, default: int) -> int:
     try:
         return int(os.environ.get(name, default))
@@ -310,6 +321,7 @@ class GeminiProvider(Provider):
 
         url = self.ENDPOINT.format(model=self.model)
         last_err = ""
+        escalated = False
         for attempt in range(4):
             self.bucket.acquire()
             try:
@@ -364,11 +376,33 @@ class GeminiProvider(Provider):
                 # HTTP 200, no error, no text. A provider that can fail
                 # invisibly makes every number downstream of it unfalsifiable.
                 if not text.strip():
+                    # AUTOMATIC ESCALATION, once per call. If the model ate its
+                    # whole budget thinking, the fix is more budget -- and this
+                    # code can work that out for itself. Telling the user to go
+                    # set RIPPLE_MAX_OUTPUT is making them debug our problem.
+                    #
+                    # Not a loop: exactly one retry at 4x, because a model that
+                    # produces nothing at 4096 tokens is not budget-starved and
+                    # spending more tokens to prove it is waste.
+                    thought = int(usage_thoughts(data))
+                    if (finish in ("MAX_TOKENS", "", None)
+                            and not escalated
+                            and gen["maxOutputTokens"] < 4096):
+                        escalated = True
+                        gen["maxOutputTokens"] = min(
+                            4096, gen["maxOutputTokens"] * 4)
+                        gen.pop("thinkingConfig", None)  # it was ignored anyway
+                        last_err = (f"empty at {thought} thinking tokens; "
+                                    f"retrying at "
+                                    f"{gen['maxOutputTokens']} output tokens")
+                        continue
                     why = {
-                        "MAX_TOKENS": ("model used its whole output budget "
-                                       "without producing text (reasoning "
-                                       "tokens); raise RIPPLE_MAX_OUTPUT or "
-                                       "use a non-thinking model"),
+                        "MAX_TOKENS": (f"model spent its entire output budget "
+                                       f"({gen['maxOutputTokens']} tokens, "
+                                       f"{thought} of them on reasoning) "
+                                       f"without producing any answer text -- "
+                                       f"this model cannot be used for "
+                                       f"synthesis at a sane budget"),
                         "SAFETY": "response blocked by safety filters",
                         "RECITATION": "response blocked as recitation",
                         "PROHIBITED_CONTENT": "response blocked as prohibited",
