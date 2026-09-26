@@ -6,7 +6,9 @@ Design constraints, in priority order:
      from the file itself (purple 6D28D9 / 704EA6, ink 14142B, muted 63637E,
      lilac D9D3F0, Calibri + Arial) so added content reads as part of the deck
      rather than pasted into it.
-  2. Every number on these slides comes from results/benchmark_dev.json.
+  2. Every number on these slides comes from results/benchmark_dev.json
+     (keyless run) or results_gemini/run2_2026-09-26/ (real model, named
+     beside each figure).
      Nothing is estimated.
   3. No slide is bullets-on-white. Each has a visual structure appropriate to
      its content: stat tiles, comparison columns, a pipeline diagram, a
@@ -409,7 +411,7 @@ beats = [
     ("0:30", "Early retrieval + multi-intent",
      "Stability climbs; RETRIEVE fires at 0.8 s while the customer is still "
      "speaking. Second and third questions open parallel branches.",
-     "First token at −1.04 s"),
+     "Answer starts before they finish"),
     ("2:00", "Late detail, refined not restarted",
      "“I bought it in Dubai.” Version diff animates: claims "
      "preserved byte-identical, one superseded, delta retrieval only.",
@@ -490,11 +492,12 @@ clear_body(6)
 s = S[6]
 kicker(s, "Samsung runs support centres. Handle time and first-call resolution "
           "are budget lines, not metrics.")
-tiles = [("−1.04 s", "median time to first token", PURPLE,
-          "relative to end of utterance"),
+tiles = [("−3.17 s", "first answer, two-question calls", PURPLE,
+          "before the customer finishes · real model"),
          ("0.884", "of eligible turns retrieve early", PURPLE, "gate G2 ≥ 0.80"),
          ("0.000", "false triggers", GOOD, "naive streaming: 1.000"),
-         ("0", "fabricated citations", GOOD, "of 159 issued")]
+         ("158/158", "claims backed by the cited passage", GOOD,
+          "gemini-3.5-flash-lite · 0 fabricated")]
 w = (CONTENT_W - 0.66) / 4
 for i, (v, lab, c, note) in enumerate(tiles):
     stat(s, CONTENT_L + i * (w + 0.22), 1.70, w, v, lab, vcolor=c, h=1.20,
@@ -530,8 +533,8 @@ rich(tf, [("Session-scoped memory only. ", True, PURPLE_D),
 # --- 8. Innovation, results, limitations ---------------------------------
 clear_body(7)
 s = S[7]
-kicker(s, "Dev split, 40 scenarios, keyless provider. Held-out split reserved "
-          "for one run after feature freeze.")
+kicker(s, "Table: dev split, 40 scenarios, keyless provider. Right card: the "
+          "same split on a real model. Held-out split reserved for one run.")
 rows = [
     ["System", "early retr", "false trig", "multi-intent", "recall@k",
      "intent cov", "TTFT med", "retr/turn"],
@@ -555,22 +558,22 @@ para(tf, "G2 early retrieval 0.884 · G3 multi-intent 0.889 · "
      size=10.5, color=INK, space_after=0)
 
 shp, tf = card(s, CONTENT_L + 5.80, 3.30, 5.70, 1.16, fill=TINT)
-para(tf, "Sharpest ablation — A2, fusion", size=12.5, bold=True,
-     color=PURPLE_D, font=HEAD, first=True, space_after=4)
-para(tf, "recall@k is identical at 0.960 with plain RRF, so every gold chunk "
-         "was retrieved either way. Coverage still falls 0.772 → 0.718. "
-         "That is sub-intent starvation, and no standard metric can see it.",
+para(tf, "Real model — gemini-3.5-flash-lite, 26 Sep 2026", size=12.5,
+     bold=True, color=PURPLE_D, font=HEAD, first=True, space_after=4)
+para(tf, "Ripple vs static RAG, all 40 dev scenarios: 158/158 claims backed by "
+         "their cited passage · 0 fabricated · recall 0.942 vs 0.835 · "
+         "1.44× tokens per turn · first answer −3.17 s on two-question calls.",
      size=10.5, color=INK, space_after=0)
 
 shp, tf = card(s, CONTENT_L, 4.60, CONTENT_W, 1.04, fill=WARN_T)
 para(tf, "Limitations, stated plainly", size=12.5, bold=True, color=WARN,
      font=HEAD, first=True, space_after=4)
-para(tf, "Groundedness of 1.000 is an artefact of the keyless provider, which "
-         "answers by copying the sentence it cites — the real number needs "
-         "a model run.  ·  The keyless path cannot abstain on near-miss "
-         "holes; two lexical heuristics were measured and discarded.  ·  "
-         "Selection, not retrieval, is the bottleneck: 0.960 recall against "
-         "0.772 coverage.", size=10.5, color=INK, space_after=0)
+para(tf, "The table's −1.036 s assumes an instant model; with ~2 s real replies "
+         "the median is +1.80 s (static RAG +2.07 s) and the p90 tail is worse "
+         "(10.1 s vs 2.5 s).  ·  With a real model static RAG edges coverage "
+         "(0.854 vs 0.833).  ·  Grounding is an automated check, not human "
+         "review.  ·  No currency cost: no published price configured.",
+     size=10.5, color=INK, space_after=0)
 
 # --- 9. What's next -------------------------------------------------------
 clear_body(8)
@@ -578,7 +581,7 @@ s = S[8]
 kicker(s, "Ordered by measured expected value, not by novelty.")
 nexts = [
     ("1", "Cross-encoder reranking",
-     "The measured bottleneck is selection: recall 0.960, coverage 0.772. Our "
+     "The measured bottleneck is selection: recall 0.960, coverage 0.772 (keyless). Our "
      "lexical reranker shared the retriever's bias and made it worse. A "
      "cross-encoder scores relevance rather than term overlap — the "
      "highest-value next experiment, and currently unmeasured."),
