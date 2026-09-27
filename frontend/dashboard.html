@@ -307,6 +307,9 @@ window.showChunk = function(cite){
     v.innerHTML=`<div class="mono" style="color:var(--accent);font-size:11px">${c.cite}</div>`+
       `<div style="font-weight:600;margin:3px 0">${esc(c.doc_title)} — §${c.section} ${esc(c.section_title)}</div>`+
       `<div style="color:var(--ink2);font-size:12.5px">${esc(c.text)}</div>`;
+    // The panel sits below the evidence pool, off-screen once an answer has
+    // a few claims -- a click looked like it did nothing. Bring it into view.
+    v.scrollIntoView({behavior:'smooth', block:'center'});
   });
 };
 

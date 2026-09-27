@@ -68,12 +68,14 @@ seconds — let the transcript fill and the stability curve climb.
 
 **Screen:** the TTFT tile flips negative.
 
-> "Time to first token, measured against the end of the sentence: about
-> **minus one second** here. This recording uses our keyless mode, where the
-> model answers instantly, so read it as how early Ripple *starts*. On a real
-> model — Gemini — when a customer asks two things, the first answer lands a
-> median **three seconds before they finish**. A turn-based system cannot
-> produce a negative number, because it hasn't started yet."
+> "Top right: time to first answer, measured against the end of the
+> sentence. It reads about **minus seven seconds** here — the answer started
+> seven seconds before the customer finished. This recording uses our keyless
+> mode, where the model answers instantly, so read it as how early Ripple
+> *starts*. On a real model — Gemini — this same call's first answer landed
+> **five seconds before the end**, and across all two-question calls the median
+> was three seconds. A turn-based system cannot produce a negative number,
+> because it hasn't started yet."
 
 ## 2:00 – 3:05 · Beat 2 — late detail, refined not restarted
 
