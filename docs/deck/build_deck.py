@@ -26,7 +26,7 @@ from pptx.util import Emu, Inches, Pt
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "template.pptx")
-OUT = os.path.join(HERE, "VITVellore_Ripple_Submission.pptx")
+OUT = os.path.join(HERE, "VITVellore_Spark_Submission.pptx")
 
 # --- palette, lifted from the template -----------------------------------
 PURPLE = RGBColor(0x6D, 0x28, 0xD9)
@@ -239,7 +239,7 @@ for sh in s.shapes:
     if sh.has_text_frame and sh.text_frame.text.strip().startswith("Theme ID"):
         lines = [
             "Theme ID - 04  Streaming Live RAG",
-            "Team Name - Ripple",
+            "Team Name - Spark  ·  Project - Ripple",
             "College Name - Vellore Institute of Technology, Vellore",
             "Priyanshu Kundu - priyanshuwork.10@gmail.com",
             "Souptik Hazra",

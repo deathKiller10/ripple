@@ -12,7 +12,7 @@ nine, and the form asks for the prompts, which nobody remembers a week later.
 
 ## Team details (fill in before submission)
 
-- Team name: `________` (register as `CollegeName_TeamName`)
+- Team name: **Spark** (files named `VITVellore_Spark_…`)
 - Project name: **Ripple**
 - Institution: VIT Vellore
 - Submission date: by 30 Sep 2026 (deadline)

@@ -424,7 +424,7 @@ otherwise.
 |---|---|---|
 | Working prototype | this repo | main deck |
 | README, reproducible setup, Docker | here, `Dockerfile`, `docker-compose.yml` | main deck |
-| Presentation | `VITVellore_Ripple_Submission.pptx` | main deck |
+| Presentation | `VITVellore_Spark_Submission.pptx` | main deck (team Spark) |
 | Demo video ≤ 5 min | *link to be added before submission* | both |
 | **System architecture brief** | [`docs/architecture-brief.md`](docs/architecture-brief.md) | Theme 4 Guide §8 |
 | **Benchmarking & evaluation report** | [`docs/evaluation-report.md`](docs/evaluation-report.md) | Theme 4 Guide §8 |
