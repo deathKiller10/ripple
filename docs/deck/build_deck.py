@@ -534,7 +534,8 @@ rich(tf, [("Session-scoped memory only. ", True, PURPLE_D),
 clear_body(7)
 s = S[7]
 kicker(s, "Table: dev split, 40 scenarios, keyless provider. Right card: the "
-          "same split on a real model. Held-out split reserved for one run.")
+          "same split on a real model. Held-out (34 unseen, run once): all six "
+          "gates pass.")
 rows = [
     ["System", "early retr", "false trig", "multi-intent", "recall@k",
      "intent cov", "TTFT med", "retr/turn"],
@@ -572,7 +573,9 @@ para(tf, "The table's −1.036 s assumes an instant model; with ~2 s real replie
          "the median is +1.80 s (static RAG +2.07 s) and the p90 tail is worse "
          "(10.1 s vs 2.5 s).  ·  With a real model static RAG edges coverage "
          "(0.854 vs 0.833).  ·  Grounding is an automated check, not human "
-         "review.  ·  No currency cost: no published price configured.",
+         "review.  ·  Keyless mode declined 0 of 2 unanswerable held-out "
+         "questions (near-misses).  ·  No currency cost: no published price "
+         "configured.",
      size=10.5, color=INK, space_after=0)
 
 # --- 9. What's next -------------------------------------------------------
@@ -624,9 +627,9 @@ diffs = [
      "Early-retrieval rate AND false-trigger rate. A system that retrieves on "
      "every chunk scores 1.000 on the first and 1.000 on the second. We report "
      "0.884 and 0.000."),
-    ("Held-out split declared before tuning",
-     "Costs nothing, cannot be retrofitted credibly, and is the only real "
-     "answer to “did you overfit to your own demo?”"),
+    ("Held-out split, run once after freeze",
+     "34 unseen scenarios: all six gates pass, one to two points below dev "
+     "(recall 0.937). The honest answer to “did you overfit to your demo?”"),
     ("Output matches the guide's §4 JSON exactly",
      "retrieval_events, sub_queries, answer, citations, uncertainty — "
      "their field names, so a private harness written against the guide "

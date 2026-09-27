@@ -40,7 +40,7 @@ API key (gate G1). **Section 2A reports a real-model run** (`gemini-3.5-flash-li
 
 **Splits.** `dev` = 40 scenarios, 51 labelled turns. All threshold calibration
 happened here and nowhere else. `heldout` = 34 scenarios, 43 labelled turns,
-**reserved for a single run after feature freeze and not yet executed.** The
+**run exactly once, after feature freeze (§2B).** The
 split was declared in `data/scenarios/build_scenarios.py` before any tuning.
 
 **Model naming.** Any figure from a real-provider run must be reported beside
@@ -191,6 +191,55 @@ and instant:
    comparison flattered Ripple by the model's latency (`5c5635e`).
 3. The model call then included time waiting in our own rate limiter — B1's
    7.45 s TTFT in run 1 was 60 s ÷ 8 requests per minute (`8e25364`).
+
+---
+
+## 2B. Held-out split — run once, after feature freeze
+
+34 scenarios and 43 labelled turns that were never used for tuning or
+inspected before this run. Keyless stub provider, all four systems, code at
+commit `4a2ba02`, run `2026-09-27T16:01:30Z`. Files: `results_heldout/`.
+
+| system | early retr | false trig | multi-intent | recall@k | intent cov | fabricated | continuity | TTFT median | retr/turn |
+|---|---|---|---|---|---|---|---|---|---|
+| B0 LLM only | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | 0 | 1.000 | 0.000 | 0.00 |
+| B1 static RAG | 0.000 | 1.000 | 0.000 | 0.867 | 0.704 | 0 | 1.000 | +0.006 | 1.00 |
+| B2 naive streaming | 1.000 | 1.000 | 0.000 | 0.825 | 0.676 | 0 | 1.000 | −2.069 | 3.63 |
+| **B3 Ripple** | **0.868** | **0.000** | **0.875** | **0.937** | **0.778** | **0** | **1.000** | **−1.036** | 2.49 |
+
+**All six gates PASS on unseen data:** early retrieval 0.868 (33 of 38
+eligible turns), false triggers 0 of 5, multi-intent 0.875 (7 of 8 compound
+turns), 0 fabricated IDs of 135 citations, state continuity 1.000 over 6
+refinement turns, trace coverage 1.000.
+
+| B3 Ripple | dev (§2) | held-out | change |
+|---|---|---|---|
+| Early retrieval | 0.884 | 0.868 | −0.016 |
+| False triggers | 0.000 | 0.000 | — |
+| Multi-intent | 0.889 | 0.875 | −0.014 |
+| Recall@k | 0.960 | 0.937 | −0.023 |
+| Per-intent coverage | 0.772 | 0.778 | +0.006 |
+
+The drop from dev to held-out is one to two points on every metric, which is
+what calibrating on dev and not touching held-out should produce. Ripple keeps
+its lead over both baselines on recall (0.937 vs 0.867 static, 0.825 naive)
+and coverage (0.778 vs 0.704 and 0.676), and naive streaming still spends
+46% more retrievals per turn (3.63 vs 2.49).
+
+**Abstention did not generalise: 0 of 2.** Both held-out questions the corpus
+cannot answer — a trade-in valuation and paying for a repair in instalments —
+are *near-miss* holes: the corpus has related repair-payment and residual-value
+text. Ripple answered both with correctly cited but non-responsive sentences
+("Payment is collected on collection of the device") instead of declining.
+Nothing was fabricated; the answers simply did not answer. This is the
+keyless path's stated limitation (§4.3), now confirmed on unseen data. On dev
+the two holes were clear misses (e.g. insurance), which the retrieval gate
+catches; the dev abstention figure therefore overstated what the stub can do.
+
+**Stub TTFT is identical on both splits** (−1.036 s, −2.069 s): replay chunks
+arrive on a fixed synthetic cadence and the stub answers instantly, so the
+median lands on the same chunk boundary. It measures where speculation fires,
+not a latency (§0, §2A).
 
 ---
 
@@ -405,8 +454,8 @@ obvious until the sweep is run, and a reason to sweep rather than tune.
 
 Stated explicitly so no reader infers more than we tested.
 
-- **The held-out split has not been run.** Reserved for one execution after
-  feature freeze.
+- **The held-out split was run once, keyless only** (§2B). It has not been
+  run with a real model.
 - **One real model, one day.** §2A is `gemini-3.5-flash-lite` on the dev
   split, B1 and B3 only. B0, B2 and the ablations were not re-run with a real
   model, and no second model was tried.

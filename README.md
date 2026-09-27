@@ -136,8 +136,11 @@ ACCEPTANCE GATES (Theme 4 Guide §5)
   compared on `retrievals_per_turn` — which is real: naive streaming spends
   **49% more retrievals per turn** and triggers on **100%** of turns that
   needed no retrieval at all.
-- **The held-out split has not been run.** Reserved for one execution after
-  feature freeze. All calibration happened on `dev`.
+- **Held-out split, run once after feature freeze** (34 unseen scenarios,
+  keyless): all six gates pass — early retrieval 0.868, false triggers 0.000,
+  multi-intent 0.875, recall 0.937, coverage 0.778, one to two points below
+  dev. Abstention did **not** generalise (0 of 2 near-miss holes declined).
+  Details in §2B of the evaluation report; files in `results_heldout/`.
 
 ## Real-model run — `gemini-3.5-flash-lite`, 26 Sep 2026
 
@@ -379,10 +382,10 @@ we have never indexed.
 
 ## Evaluation discipline
 
-`dev` (12 scenarios, 16 labelled turns) — all threshold calibration happens
+`dev` (40 scenarios, 51 labelled turns) — all threshold calibration happens
 here and nowhere else.
-`heldout` (12 scenarios, 16 labelled turns) — **run once, after feature
-freeze.** Never inspected while tuning.
+`heldout` (34 scenarios, 43 labelled turns) — **run once, after feature
+freeze (27 Sep 2026, commit `4a2ba02`).** Never inspected while tuning.
 
 Turn kinds make gate G2 measurable at all, which it is not without them:
 

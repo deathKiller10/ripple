@@ -154,7 +154,11 @@ timings are machine-independent — a slow laptop produces the same numbers.
 
 **18. Did you overfit to your own test set?**
 The dev/held-out split was declared in the scenario builder before any tuning,
-all calibration happened on dev, and held-out is run once after feature freeze.
+all calibration happened on dev, and held-out was run exactly once after
+feature freeze: all six gates pass on 34 unseen scenarios, one to two points
+below dev (recall 0.937 vs 0.960, early retrieval 0.868 vs 0.884). The one
+thing that did not generalise is keyless abstention — 0 of 2 near-miss holes —
+and the report says so.
 A build-time check fails if any gold citation does not exist in the corpus.
 
 **19. What are the limitations?**
