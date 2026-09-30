@@ -33,7 +33,10 @@ No API key. No GPU. No model download at run time — the corpus, the labels, th
 scenarios and the index are all built into the image. This is gate **G1**, and
 it is the gate most submissions lose.
 
-Without Docker, two commands:
+Without Docker, two commands — with **Python 3.11** (the version the Docker
+image uses). Newer Pythons such as 3.14 fail at `pip install`: the pinned
+`numpy` has no prebuilt package for them and tries to compile from source.
+On Windows, create the environment with `py -3.11 -m venv .venv`.
 
 ```bash
 pip install -r requirements.txt
