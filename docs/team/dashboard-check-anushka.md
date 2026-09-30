@@ -15,3 +15,13 @@ All the project scenarios were successfully tested on the system. The project is
 ## 3. Project Demonstration
 
 A demonstration video was created to showcase the project's functionalities and execution. The total duration of the demo video is **4:56 minutes**, covering the major scenarios and features of the project.
+
+---
+
+**Correction (added 1 Oct 2026, from the project log).** Two statements
+above need qualifying. Anushka *tested* the project on this laptop; the
+system was developed by Priyanshu Kundu (see Team and contributions in the
+README). And setup did hit one issue first: with Python 3.14, `pip install`
+failed because the pinned `numpy` has no prebuilt package for it. With
+Python 3.11 everything installed and ran. That finding is why the README
+now states the Python version.
