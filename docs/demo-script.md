@@ -86,7 +86,7 @@ seconds — let the transcript fill and the stability curve climb.
 *(the "I bought it in Dubai" turn streams in)*
 
 > "Watch the diff. **Two claims preserved — byte-identical text, byte-identical
-> citations. One superseded. One added, from a single delta search.**
+> citations. One superseded. Three added, from a single delta search.**
 >
 > The citation-drift counter reads zero, and that's structural, not lucky. The
 > answer isn't a paragraph — it's a set of claims, each bound to the evidence it
