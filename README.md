@@ -4,6 +4,7 @@
 
 **Team** · Priyanshu Kundu · Souptik Hazra · Anushka Paul · Arpita Bhaumik
 **Repo** · https://github.com/deathKiller10/ripple
+**Demo video** · [https://drive.google.com/file/d/1UpMbg8ZeJBRjVYF5nGuoG_cB5_6EnfJL/view?usp=sharing](https://drive.google.com/file/d/1UpMbg8ZeJBRjVYF5nGuoG_cB5_6EnfJL/view?usp=sharing) (4:56)
 **Submission tag** · `PRISM_GENAI_HACKATHON_Y2026` · due 30 Sep 2026
 
 Retrieval that starts before the sentence lands, and an answer that updates
@@ -33,7 +34,10 @@ No API key. No GPU. No model download at run time — the corpus, the labels, th
 scenarios and the index are all built into the image. This is gate **G1**, and
 it is the gate most submissions lose.
 
-Without Docker, two commands:
+Without Docker, two commands — with **Python 3.11** (the version the Docker
+image uses). Newer Pythons such as 3.14 fail at `pip install`: the pinned
+`numpy` has no prebuilt package for them and tries to compile from source.
+On Windows, create the environment with `py -3.11 -m venv .venv`.
 
 ```bash
 pip install -r requirements.txt
@@ -428,7 +432,7 @@ otherwise.
 | Working prototype | this repo | main deck |
 | README, reproducible setup, Docker | here, `Dockerfile`, `docker-compose.yml` | main deck |
 | Presentation | `VITVellore_Spark_Submission.pptx` | main deck (team Spark) |
-| Demo video ≤ 5 min | *link to be added before submission* | both |
+| Demo video ≤ 5 min | [Watch the demo (4:56)](https://drive.google.com/file/d/1UpMbg8ZeJBRjVYF5nGuoG_cB5_6EnfJL/view?usp=sharing) | both |
 | **System architecture brief** | [`docs/architecture-brief.md`](docs/architecture-brief.md) | Theme 4 Guide §8 |
 | **Benchmarking & evaluation report** | [`docs/evaluation-report.md`](docs/evaluation-report.md) | Theme 4 Guide §8 |
 | **Telemetry & observability schema** | [`docs/telemetry-schema.md`](docs/telemetry-schema.md) | Theme 4 Guide §8 |

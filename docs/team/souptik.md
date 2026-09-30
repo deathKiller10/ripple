@@ -14,7 +14,9 @@ gap, you find it before the judges do.
   accept the banner).
 - **Git for Windows** (https://git-scm.com). Check in PowerShell:
   `git --version`
-- **Python** (3.11 recommended). Check: `python --version`
+- **Python 3.11** — not 3.13 or 3.14; on 3.14 `pip install` fails at
+  numpy (found by Anushka on 30 Sep). Install it from python.org if needed,
+  and in step 2 use `py -3.11 -m venv .venv` instead of `python -m venv .venv`.
 - Keep a notes file open. **Write down every step, how long it took, and
   anything that failed or confused you.** That record is your deliverable.
 
