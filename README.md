@@ -434,7 +434,7 @@ Stated as it happened, so the git history and this section agree.
 | **Priyanshu Kundu** | Built the system — engine, controller, claim graph, retrieval, evaluation harness, corpus, scenarios, dashboard, documentation and deck — with AI coding assistants (Claude Code, then Claude in Cowork; see [`docs/ai-log.md`](docs/ai-log.md) and the signed [disclosure form](docs/AI_Disclosure_Spark.pdf)). Directed and reviewed the work and ran every measurement, including the real-model runs, on his own machine. Recorded the video introduction. |
 | **Arpita Bhaumik** | Independently reproduced the project on her own Windows laptop from the README — setup, 11/11 tests, the dev benchmark (identical figures) and Docker ([notes](docs/team/reproduction-arpita.md)). Recorded the video's numbers section and its closing section. |
 | **Anushka Paul** | Recorded the live dashboard demo, the longest part of the video. Setting up on her own laptop, found that the README did not state a Python version and that Python 3.14 cannot install the pinned dependencies — now documented in the README. |
-| **Souptik Hazra** | Team representative; signed the AI usage disclosure form. |
+| **Souptik Hazra** | Drafted an alternative project plan at the start; the team compared it with Priyanshu's and went with Priyanshu's, so his was superseded. Team representative; signed the AI usage disclosure form. |
 
 Every commit made with AI assistance carries a `Co-Authored-By` line.
 
