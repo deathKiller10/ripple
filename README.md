@@ -4,7 +4,7 @@
 
 **Team** · Priyanshu Kundu · Souptik Hazra · Anushka Paul · Arpita Bhaumik
 **Repo** · https://github.com/deathKiller10/ripple
-**Submission tag** · `PRISM_GENAI_HACKATHON_Y2026` · due 25 Sep 2026
+**Submission tag** · `PRISM_GENAI_HACKATHON_Y2026` · due 30 Sep 2026
 
 Retrieval that starts before the sentence lands, and an answer that updates
 itself instead of starting over.
