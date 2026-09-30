@@ -78,16 +78,10 @@ full-duplex behaviour is the only mode that exists here.
 
 ## Who owns what
 
-| | Person | Folders |
-|---|---|---|
-| **A** | Souptik Hazra | `ripple/retrieval/`, `ripple/corpus/`, `data/corpus/` |
-| **B** | Priyanshu Kundu | `ripple/controller/`, `ripple/session/`, `ripple/synthesis/`, `ripple/engine.py` |
-| **C** | Anushka Paul | `frontend/` |
-| **D** | Arpita Bhaumik | `evaluation/`, `data/scenarios/`, `Dockerfile`, `docker-compose.yml`, `tests/` |
-
-Stay in your folders. Four people letting an AI edit the same files produces
-merge conflicts faster than features. If you need a change in someone else's
-folder, ask them — do not reach in.
+This section originally split the folders across four members. In practice
+Priyanshu Kundu built and owns all of the code; the teammates' contributions
+(reproduction, the demo video, the disclosure sign-off) are recorded under
+**Team and contributions** in the README.
 
 ## Commands
 
