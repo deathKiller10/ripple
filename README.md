@@ -438,6 +438,7 @@ otherwise.
 | **Telemetry & observability schema** | [`docs/telemetry-schema.md`](docs/telemetry-schema.md) | Theme 4 Guide §8 |
 | Demo shot list | [`docs/demo-script.md`](docs/demo-script.md) | — |
 | Jury Q&A preparation | [`docs/judge-qa.md`](docs/judge-qa.md) | — |
+| AI usage disclosure form (signed) | [`docs/AI_Disclosure_Spark.pdf`](docs/AI_Disclosure_Spark.pdf) | Samsung disclosure form |
 | AI usage disclosure log | [`docs/ai-log.md`](docs/ai-log.md) | disclosure form |
 
 ## Working on this
